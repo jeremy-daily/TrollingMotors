@@ -31,8 +31,8 @@ unsigned char rxBuf[8];
 
 //Set up modes of operation
 byte mode = 0; 
-int numberOfModes = 3; //This limits the number of displayed modes.
-char modeNames[5][6]={"Off ","Man. ","Turn ","Fig8 ","Fix "};
+int numberOfModes = 4; //This limits the number of displayed modes.
+char modeNames[5][6]={"Off ","Man. ","Turn ","Fix ","Fig8 "};
 
 //Set up the integrator to compensate for drift and error in the PI loop
 const int memorySize=500;
@@ -98,6 +98,9 @@ boolean modeEnable = false;
 boolean firstHeading = true;
 
 // Set up operational Variables
+int voltage = 0;
+int portVoltage = 0;
+int starVoltage = 0;
 int difference = 0;
 int speedSetting = 0;
 int goalSetting = 0;
@@ -108,6 +111,11 @@ int gpsSpeed = 0;
 int gpsAngle = 0;
 byte gpsSats = 0;
 byte gpsFix = 0;
+
+long currentLongitude = 0;
+long desiredLongitude = 0;
+long currentLatitude = 0;
+long desiredLatitude = 0;
 
 /***********************************************************************************************/
 /***********************************************************************************************/
@@ -169,7 +177,18 @@ void loop() {
 
   /***********************************************************************************************/
   if (mode == 0){ //Off 
-    displayReadings();
+    
+    if (currentMillis - lastReadingDisplayTime > 286){
+        lastReadingDisplayTime = currentMillis;
+        char displayBuffer3[11];
+        int volts = voltage/1000;
+        int millivolts = voltage - volts*1000;
+        sprintf(displayBuffer3,"%2i.%1i volts", volts,millivolts);
+        dispSerial.write(254); //escape character
+        dispSerial.write(134); //First Line
+        dispSerial.print(displayBuffer3);
+      }
+      displayReadings();
   }
   /***********************************************************************************************/
   else if (mode == 1){ //Manual
@@ -262,14 +281,24 @@ void loop() {
   }
   /***********************************************************************************************/
 
-  else if (mode == 3){
-   displayDesires();
-    displayReadings();
-    sendCommands();
+  else if (mode == 3){ //fix
+   if (currentMillis - lastReadingDisplayTime > 998){
+        lastReadingDisplayTime = currentMillis;
+        dispSerial.write(254); //escape character
+        dispSerial.write(128); //Beginning of the second line
+        char displayBuffer1[17];
+        sprintf(displayBuffer1,"%14i N",currentLongitude );
+        dispSerial.print(displayBuffer1);
+        dispSerial.write(254); //escape character
+        dispSerial.write(192); //Beginning of the second line
+        char displayBuffer2[15];
+        sprintf(displayBuffer2,"%14i",currentLatitude);
+        dispSerial.print(displayBuffer2);
+      }
   }
   /***********************************************************************************************/
 
-  else if (mode == 4){
+  else if (mode == 4){ //Figure 8
     displayDesires();
     displayReadings();
     sendCommands();
@@ -414,6 +443,12 @@ void sendCommands(){
     Serial.print("\tSpd:");
     Serial.print(speedSetting);
     
+    Serial.print("\tLat:");
+    Serial.print(currentLatitude);
+    
+    Serial.print("\tLon:");
+    Serial.print(currentLongitude);
+    
     Serial.print("\tHead:");
     Serial.print(currentHeading);
     
@@ -500,12 +535,34 @@ void readCANbus(){
    if (rxId == 0x43c){
      heading1 = (rxBuf[0]*256 + rxBuf[1])/10.0;
    }
+   else if (rxId == 0x43d){
+     int vSenseReading = rxBuf[0]*256 + rxBuf[1];
+     int portVsenseReading = rxBuf[2]*256 + rxBuf[3];
+     int starVsenseReading = rxBuf[4]*256 + rxBuf[5];
+     //heading1 = (rxBuf[6]*256 + rxBuf[7])/10.;
+     voltage     = map(vSenseReading,0,630,0,120);
+     portVoltage = map(portVsenseReading,0,630,0,120);
+     starVoltage = map(starVsenseReading,0,630,0,120);
+   }
    else if (rxId == 0x43e){
      headingReading = (rxBuf[0]*256 + rxBuf[1])/10.0;
      gpsSpeed = (rxBuf[2]*256 + rxBuf[3])*1.15078;
      gpsAngle = (rxBuf[4]*256 + rxBuf[5]);
      gpsSats  = rxBuf[6];
      gpsFix   = rxBuf[7];
+   }
+   else if (rxId == 0x43f){
+     long temp0 = rxBuf[0];
+     long temp1 = rxBuf[1];
+     long temp2 = rxBuf[2];
+     long temp3 = rxBuf[3];
+     currentLatitude = temp0 << 24 + temp1 << 16 + temp2 << 8 + temp3;
+     temp0 = rxBuf[4];
+     temp1 = rxBuf[5];
+     temp2 = rxBuf[6];
+     temp3 = rxBuf[7];
+     currentLongitude = temp0 << 24 + temp1 << 16 + temp2 << 8 + temp3;
+     
    }
   
   currentHeading = int(headingReading + headingFixedOffset);
@@ -533,7 +590,7 @@ void displayDesires(){
 /***********************************************************************************************/
 /***********************************************************************************************/
 void displayReadings(){
-  if (currentMillis - lastReadingDisplayTime > 183){
+  if (currentMillis - lastReadingDisplayTime > 283){
     lastReadingDisplayTime = currentMillis;
     dispSerial.write(254); //escape character
     dispSerial.write(192); //Beginning of the second line
