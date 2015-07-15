@@ -13,7 +13,7 @@ SoftwareSerial dispSerial(8,9);
 // enable the CAN interface with the MCP2515 chip
 MCP_CAN CAN0(10); 
 
-int turnRate = 1000; // This is the number of milliseconds per degree in a turn.
+int turnRate = 1200; // This is the number of milliseconds per degree in a turn.
 
 int K = 5; //Proportional gain Constant. This is multiplied by the number of degrees difference.1
 int I = 11; // Integral gain Constant. Since this is integer math, bit shifting is easier to implement.
@@ -34,6 +34,7 @@ int deltaT = 1000; //milliseconds to calculate heading rate changes
 int zeroAdjustR = 0; //This is a constant to make sure the motors are sent back to zero.
 int zeroAdjustL = 0; //This is a constant to make sure the motors are sent back to zero.
 const int headingFixedOffset = -15; //This accounts for the orientation of the compass in the boat in degrees.
+int degreeCounter =0;
 
 //values used to send CAN message to the motor Controller
 int rightMotor = 0;
@@ -48,7 +49,7 @@ unsigned char rxBuf[8];
 
 //Set up modes of operation
 byte mode = 0; 
-int numberOfModes = 4; //This limits the number of displayed modes.
+int numberOfModes = 5; //This limits the number of displayed modes.
 char modeNames[5][6]={"Off ","Man. ","Turn ","Fix ","Fig8 "};
 
 //Set up the integrator to compensate for drift and error in the PID loop
@@ -126,6 +127,7 @@ int speedSetting = 0;
 int goalSetting = 0;
 int currentHeading = 0;
 int headingReading = 0;
+int startHeading = 0;
 int heading1 = 0;
 int gpsSpeed = 0;
 int gpsAngle = 0;
@@ -288,43 +290,23 @@ void loop() {
       }
     }
     
-    if (finalHeading > 360) finalHeading -= 360;
-    if (finalHeading < 0) finalHeading += 360;
-    if (goalSetting > 360) goalSetting -= 360;
-    if (goalSetting < 0) goalSetting += 360;
+   
   
     if (currentMillis - lastReadingDisplayTime > 186){
         lastReadingDisplayTime = currentMillis;
         char displayBuffer1[15];
         if (pushButtonState){
-          sprintf(displayBuffer1,"Rt:%4i END:%3i", turnRate);
+          sprintf(displayBuffer1,"END:%3i Rt:%4i", finalHeading, turnRate);
         }
         else
         {
-          sprintf(displayBuffer1,"END:%3i H:%3i", finalHeading,currentHeading);
+          sprintf(displayBuffer1,"END:%3i H:%3i ", finalHeading,currentHeading);
         }
         dispSerial.write(254); //escape character
         dispSerial.write(192); //Beginning of the second line
         dispSerial.print(displayBuffer1);
       }
-    
-    //Increment 1 degree in the correct direction according to the compass 
-    //Considerations for crossing 0/360 are implemented.
-    if (currentMillis - lastDegreeTime > turnRate){
-        lastDegreeTime = currentMillis;
-        if (abs(finalHeading - goalSetting) < 180){
-          if (finalHeading > goalSetting) goalSetting +=1;
-          else if (finalHeading < goalSetting) goalSetting -=1;
-          else finalHeading = goalSetting;
-        }
-        else {
-          if      (finalHeading < goalSetting && finalHeading >  180) goalSetting -=1;
-          else if (finalHeading < goalSetting && finalHeading <= 180) goalSetting +=1;
-          else if (finalHeading > goalSetting && finalHeading >  180) goalSetting -=1;
-          else if (finalHeading > goalSetting && finalHeading <= 180) goalSetting +=1;
-          else finalHeading = goalSetting;
-        }
-    }
+    implementTurn();
     computeValues();
     displayDesires();
     sendCommands();
@@ -350,9 +332,43 @@ void loop() {
   /***********************************************************************************************/
 
   else if (mode == 4){ //Figure 8
-    displayDesires();
-    displayReadings();
-    sendCommands();
+    if (upButtonState) incrementSpeed();
+    if (downButtonState) decrementSpeed();
+    if (pushButtonState && upButtonState) {
+      modeEnable = true;
+      speedSetting = 70;
+    }
+    
+    if (modeEnable){
+      
+      if (degreeCounter < 90) finalHeading = startHeading + 90;
+      else if (degreeCounter < 180) finalHeading = startHeading + 180;
+      else if (degreeCounter < 270) finalHeading = startHeading + 270;
+      else if (degreeCounter < 360) finalHeading = startHeading + 180;
+      else if (degreeCounter < 450) finalHeading = startHeading + 90;
+      else if (degreeCounter < 540) finalHeading = startHeading ;
+      else degreeCounter = 0;
+      
+      if (degreeCounter < 270){
+          zeroAdjustR = -turnAdjust;
+          zeroAdjustL =  turnAdjust;
+      }
+      else { 
+        zeroAdjustR =  turnAdjust;
+        zeroAdjustL = -turnAdjust;
+      }
+      
+      char displayBuffer1[15];
+      sprintf(displayBuffer1,"END:%3i H:%3i", finalHeading,currentHeading);
+      dispSerial.write(254); //escape character
+      dispSerial.write(192); //Beginning of the second line
+      dispSerial.print(displayBuffer1);
+          
+      implementTurn();
+      computeValues();
+      displayDesires();
+      sendCommands();
+    }
   }
   
  //Button Debouncing*********************************************************************************    
@@ -467,6 +483,31 @@ void loop() {
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
+void implementTurn(){
+//Increment 1 degree in the correct direction according to the compass 
+    //Considerations for crossing 0/360 are implemented.
+    if (finalHeading > 360) finalHeading -= 360;
+    if (finalHeading < 0) finalHeading += 360;
+    if (goalSetting > 360) goalSetting -= 360;
+    if (goalSetting < 0) goalSetting += 360;
+    
+    if (currentMillis - lastDegreeTime > turnRate){
+        lastDegreeTime = currentMillis;
+        if (abs(finalHeading - goalSetting) < 180){
+          if (finalHeading > goalSetting) goalSetting +=1;
+          else if (finalHeading < goalSetting) goalSetting -=1;
+          else finalHeading = goalSetting;
+        }
+        else {
+          if      (finalHeading < goalSetting && finalHeading >  180) goalSetting -=1;
+          else if (finalHeading < goalSetting && finalHeading <= 180) goalSetting +=1;
+          else if (finalHeading > goalSetting && finalHeading >  180) goalSetting -=1;
+          else if (finalHeading > goalSetting && finalHeading <= 180) goalSetting +=1;
+          else finalHeading = goalSetting;
+        }
+        degreeCounter+=1;
+    }
+}
 //Double Clikcing changes mode and resets settings
 void doubleClickRoutine(){ 
   mode += 1;
@@ -478,6 +519,7 @@ void doubleClickRoutine(){
   dispSerial.print(modeNames[mode]);
   modeEnable=false;
   goalSetting = currentHeading;
+  startHeading = currentHeading;
   speedSetting = 0;
   zeroAdjustR = 0;
   zeroAdjustL = 0;
@@ -493,7 +535,10 @@ void sendCommands(){
     Serial.print(mode);
     Serial.print(":");
     Serial.print(modeNames[mode]);
-  
+    
+    Serial.print("\tmillis:");
+    Serial.print(currentMillis);
+    
     Serial.print("\tSpd:");
     Serial.print(speedSetting);
     
