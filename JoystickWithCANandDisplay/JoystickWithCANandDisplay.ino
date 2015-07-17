@@ -15,19 +15,21 @@ MCP_CAN CAN0(10);
 
 int turnRate = 1200; // This is the number of milliseconds per degree in a turn.
 
-int K = 5; //Proportional gain Constant. This is multiplied by the number of degrees difference.1
-int I = 11; // Integral gain Constant. Since this is integer math, bit shifting is easier to implement.
+int K = 5; //Proportional gain Constant. This is multiplied by the number of degrees difference.
+int I = 9; // Integral gain Constant. Since this is integer math, bit shifting is easier to implement.
 int D = 23; // Derivative gain Constant. Since this is integer math, bit shifting is needed to get fractions.
 int bitShiftK = 2;
-int bitShiftI = 14; // Example bit shift of 8 = division by 256. Depends on the Memory Size
+int bitShiftI = 6; // Example bit shift of 8 = division by 256. Depends on the Memory Size
 int bitShiftD = 4;
 
 int turnAdjust = 10; // feed forward value to command a turn
 
 int usedI=0;
+int usedK=0;
+int usedD=0;
 
-const int memorySize=256;
-int differenceList[256];
+const int memorySize=400;
+int differenceList[400];
 
 int deltaT = 1000; //milliseconds to calculate heading rate changes
 
@@ -49,8 +51,8 @@ unsigned char rxBuf[8];
 
 //Set up modes of operation
 byte mode = 0; 
-int numberOfModes = 5; //This limits the number of displayed modes.
-char modeNames[5][6]={"Off ","Man. ","Turn ","Fix ","Fig8 "};
+int numberOfModes = 6; //This limits the number of displayed modes.
+char modeNames[6][6]={"Off ","Man. ","Turn ","Fix ","Fig8 ", "Full"};
 
 //Set up the integrator to compensate for drift and error in the PID loop
 
@@ -88,7 +90,7 @@ boolean lastUpButtonState = LOW;
 //Set up various timers
 long currentMillis = 0;
 long lastDegreeTime = 0;
-long lastDifferenceTime = 0;
+long lastHeadingTime = 0;
 long lastCalculateTime = 0;
 long turnChangeTimer = 0;
 long lastRightButtonDebounceTime = 0;
@@ -121,8 +123,8 @@ int voltage = 0;
 int portVoltage = 0;
 int starVoltage = 0;
 int difference = 0;
-int lastDifference = 0;
-int differenceChange = 0;
+int lastHeading = 0;
+int headingChange = 0;
 int speedSetting = 0;
 int goalSetting = 0;
 int currentHeading = 0;
@@ -160,7 +162,8 @@ void setup() {
     Serial.print(": ");
     Serial.println(modeNames[g]);
   }
-
+  Serial.println("Mode\tMilliseconds\tSpeed Setting\tLatitude\tLongitude\tHeading\tFinal\tGoal\tDifference\tSum\tDrift\tLeft\tRight");
+    
   // make the pushbutton's pin an input:
   pinMode(rightButton, INPUT);
   pinMode(leftButton, INPUT);
@@ -170,12 +173,23 @@ void setup() {
   
   dispSerial.begin(9600);
   delay(10);
+ 
+ // dispSerial.write(0x7C);
+ // dispSerial.write(157); //Full Brightness
+ 
+  dispSerial.write(254);
+  dispSerial.write(1); //clear screen
+  
+   
+  dispSerial.write(254); 
+  dispSerial.write(0x0C); //Turn cursor off
+ 
   dispSerial.write(254); // move cursor to beginning of first line (254, 128)
   dispSerial.write(128);
   delay(10);
   dispSerial.print("Let's go fishing");
   dispSerial.print("Fun for everyone");
-  delay(1200);
+  delay(2200);
   
   
   dispSerial.write(254); //escape character
@@ -214,41 +228,42 @@ void loop() {
   }
   /***********************************************************************************************/
   else if (mode == 1){ //Manual
-    computeValues();
     if (upButtonState) incrementSpeed();
     if (downButtonState) decrementSpeed();
     if (rightButtonState) {
-          zeroAdjustR = -25;
-          zeroAdjustL = 25;
+          zeroAdjustR = -50;
+          zeroAdjustL = 50;
           incrementGoal();
-          usedI=0;
+          //usedI = 0;
+          memset(differenceList,0,sizeof(differenceList)); // clears the integrator
           delayItime = currentMillis;
     }
-    else {
-      
-      zeroAdjustR = 0;
-      zeroAdjustL = 0;
-    }
-    if (leftButtonState)  {
-          zeroAdjustR = 25;
-          zeroAdjustL = -25;
+    else if (leftButtonState)  {
+          zeroAdjustR = 50;
+          zeroAdjustL = -50;
           decrementGoal();
-          usedI=0;
+          //usedI = 0;
+          memset(differenceList,0,sizeof(differenceList)); // clears the integrator
           delayItime = currentMillis;
     }
     else {
       zeroAdjustR = 0;
       zeroAdjustL = 0;
     }
+    
     if (pushButtonState) { 
       goalSetting = currentHeading;
       speedSetting = 0;
+      zeroAdjustR = 0;
+      zeroAdjustL = 0;
+      memset(differenceList,0,sizeof(differenceList)); // clears the integrator
     }
+    computeValues();
     displayDesires();
     displayReadings();
     sendCommands();
     
-    if (currentMillis - delayItime > 10000) usedI = I;
+    //if (currentMillis - delayItime > 5000) usedI = I;
   }
   
   /***********************************************************************************************/
@@ -266,8 +281,8 @@ void loop() {
         if (downButtonState) {
           goalSetting = currentHeading;
           finalHeading = currentHeading + 180;
-          zeroAdjustR = -10;
-          zeroAdjustL = 10;
+          zeroAdjustR = -turnAdjust;
+          zeroAdjustL = turnAdjust;
         }
         if (leftButtonState) turnRate -=5;
         if (rightButtonState) turnRate +=5;  
@@ -277,13 +292,13 @@ void loop() {
         if (downButtonState) decrementSpeed();
         if (rightButtonState){
           finalHeading +=45;
-          turnChangeTimer += 1500;
+          turnChangeTimer += 1000;
           zeroAdjustR = -turnAdjust;
           zeroAdjustL = turnAdjust;
         }
         if (leftButtonState){
           finalHeading -=45;
-          turnChangeTimer += 1500;
+          turnChangeTimer += 1000;
           zeroAdjustR = turnAdjust;
           zeroAdjustL = -turnAdjust;
         }
@@ -315,18 +330,29 @@ void loop() {
   /***********************************************************************************************/
 
   else if (mode == 3){ //fix
-   if (currentMillis - lastReadingDisplayTime > 998){
+   
+    
+   float deltaX = desiredLatitude-currentLatitude;
+   float deltaY = desiredLongitude-currentLongitude;
+   
+   float radialError = sqrt(deltaX*deltaX + deltaY*deltaY);
+   
+   goalSetting = int(RAD_TO_DEG * (atan2(deltaY, deltaX)));
+   computeValues();
+   displayReadings();
+   sendCommands();
+    
+   if (currentMillis - lastReadingDisplayTime > 198){
         lastReadingDisplayTime = currentMillis;
         dispSerial.write(254); //escape character
-        dispSerial.write(128); //Beginning of the second line
-        char displayBuffer1[17];
-        sprintf(displayBuffer1,"%14i N",currentLongitude );
-        dispSerial.print(displayBuffer1);
+        dispSerial.write(133); 
+        char displayBuffer[14];
+        sprintf(displayBuffer,"H:%3i G:%3i", currentHeading,goalSetting);
+        dispSerial.print(displayBuffer);
         dispSerial.write(254); //escape character
         dispSerial.write(192); //Beginning of the second line
-        char displayBuffer2[15];
-        sprintf(displayBuffer2,"%14i",currentLatitude);
-        dispSerial.print(displayBuffer2);
+        dispSerial.print("Dist:");
+        dispSerial.print(radialError);
       }
   }
   /***********************************************************************************************/
@@ -358,17 +384,76 @@ void loop() {
         zeroAdjustL = -turnAdjust;
       }
       
-      char displayBuffer1[15];
-      sprintf(displayBuffer1,"END:%3i H:%3i", finalHeading,currentHeading);
-      dispSerial.write(254); //escape character
-      dispSerial.write(192); //Beginning of the second line
-      dispSerial.print(displayBuffer1);
-          
+      if (currentMillis - lastReadingDisplayTime > 186){
+        lastReadingDisplayTime = currentMillis;
+        char displayBuffer1[15];
+        sprintf(displayBuffer1,"END:%3i H:%3i ", finalHeading,currentHeading);
+        dispSerial.write(254); //escape character
+        dispSerial.write(192); //Beginning of the second line
+        dispSerial.print(displayBuffer1);
+      }
+      
       implementTurn();
       computeValues();
       displayDesires();
       sendCommands();
     }
+    else{
+      dispSerial.write(254); //escape character
+      dispSerial.write(192); //Beginning of the second line
+      dispSerial.print("Press Button+Up"); 
+    }
+    
+  }
+  
+    /***********************************************************************************************/
+
+  else if (mode == 5){ //Full Throttle
+    if (upButtonState) {
+      speedSetting = 100;
+      usedK=0;
+      usedI=0;
+      usedD=0;
+    }
+    else if (downButtonState) {
+      speedSetting = -99;
+      usedK=0;
+      usedI=0;
+      usedD=0;
+    }
+    else {
+      speedSetting=0;
+      usedK=K;
+      usedI=I;
+      usedD=D;
+    }
+    
+    if (rightButtonState) {
+      goalSetting = currentHeading + 90;
+      usedK = 100;
+    }
+    else if (leftButtonState){
+      goalSetting = currentHeading - 90;
+      usedK = 100;
+    }
+    else {
+      goalSetting = currentHeading;
+      usedK = K;
+      memset(differenceList,0,sizeof(differenceList)); // clears the integrator
+    }
+        
+    if (currentMillis - lastReadingDisplayTime > 186){
+        lastReadingDisplayTime = currentMillis;
+        char displayBuffer1[15];
+        sprintf(displayBuffer1,"L:%3i R%3i ", leftMotor,rightMotor);
+        dispSerial.write(254); //escape character
+        dispSerial.write(192); //Beginning of the second line
+        dispSerial.print(displayBuffer1);
+    }    
+    computeValues();
+    displayDesires();
+    sendCommands();
+  
   }
   
  //Button Debouncing*********************************************************************************    
@@ -524,52 +609,44 @@ void doubleClickRoutine(){
   zeroAdjustR = 0;
   zeroAdjustL = 0;
   usedI = I;
+  usedK = K;
+  usedD = D;
   memset(differenceList,0,sizeof(differenceList)); // clears the integrator
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
 void sendCommands(){
-  if (currentMillis - lastSentTime > 199){
+  currentMillis=millis();
+  if (currentMillis - lastSentTime >=200){
     lastSentTime = currentMillis;
   
+    
     Serial.print(mode);
     Serial.print(":");
     Serial.print(modeNames[mode]);
-    
-    Serial.print("\tmillis:");
+    Serial.print("\t");
     Serial.print(currentMillis);
-    
-    Serial.print("\tSpd:");
+    Serial.print("\t");
     Serial.print(speedSetting);
-    
-    Serial.print("\tLat:");
+    Serial.print("\t");
     Serial.print(currentLatitude);
-    
-    Serial.print("\tLon:");
+    Serial.print("\t");
     Serial.print(currentLongitude);
-    
-    Serial.print("\tHead:");
+    Serial.print("\t");
     Serial.print(currentHeading);
-    
-    Serial.print("\tFinal:");
+    Serial.print("\t");
     Serial.print(finalHeading);
-    
-    Serial.print("\tGoal:");
+    Serial.print("\t");
     Serial.print(goalSetting);
-    
-    Serial.print("\tDiff:");
+    Serial.print("\t");
     Serial.print(difference);
-    
-    Serial.print("\tSum:");
+    Serial.print("\t");
     Serial.print(sum);
-              
-    Serial.print("\tDrift:");
+    Serial.print("\t");
     Serial.print(drift);
-         
-    Serial.print("\tLeft:");
+    Serial.print("\t");
     Serial.print(leftMotor);
-    
-    Serial.print("\tRight:");
+    Serial.print("\t");
     Serial.println(rightMotor);
     
     motorMessage[0]=byte(rightMotor);
@@ -708,32 +785,36 @@ void displayReadings(){
 /***********************************************************************************************/
 /***********************************************************************************************/
 void  computeValues(){
+  currentMillis = millis();
   if (currentMillis - lastCalculateTime > 50){
         lastCalculateTime = currentMillis;
         difference = goalSetting - currentHeading;
        
-        if (currentMillis - lastDifferenceTime > deltaT){
-          lastDifferenceTime = currentMillis;
-          differenceChange = difference - lastDifference ;
-          lastDifference = difference;
+        if (currentMillis - lastHeadingTime > deltaT){
+          lastHeadingTime = currentMillis;
+          headingChange = currentHeading - lastHeading ;
+          lastHeading = currentHeading;
         }
         
         if (difference <= -180)  difference += 360;
         else if (difference > 180)  difference -= 360;
 
-        differenceList[diffIndex] = difference;
-        diffIndex+=1;
-        if (diffIndex >= memorySize) diffIndex = 0;
+        if (rightMotor < 200 && leftMotor < 200){ // Reduces Integral windup when the actuator(motor) is saturated.
+          differenceList[diffIndex] = difference;
+          diffIndex+=1;
+          if (diffIndex >= memorySize) diffIndex = 0;
         
-        sum = 0;
-        for (int j = 0; j < memorySize; j++){
-          sum += differenceList[j];
-        } 
+          sum = 0;
+          for (int j = 0; j < memorySize; j++){
+            sum += differenceList[j];
+          } 
+          
         
-        drift = sum >> bitShiftI; //This is like division 
+          drift = sum >> bitShiftI; //This is like division 
+        }
 
-        int tempRightMotor = speedSetting - ((K*difference) >> bitShiftK) - zeroAdjustR - ((usedI*sum) >> bitShiftI) - ((D*differenceChange)>> bitShiftD) + 100;
-        int tempLeftMotor  = speedSetting + ((K*difference) >> bitShiftK) + zeroAdjustL + ((usedI*sum) >> bitShiftI) + ((D*differenceChange)>> bitShiftD) + 100;
+        int tempRightMotor = speedSetting - ((usedK*difference) >> bitShiftK) - zeroAdjustR - ((usedI*sum) >> bitShiftI) - ((usedD*headingChange)>> bitShiftD) + 100;
+        int tempLeftMotor  = speedSetting + ((usedK*difference) >> bitShiftK) + zeroAdjustL + ((usedI*sum) >> bitShiftI) + ((usedD*headingChange)>> bitShiftD) + 100;
         rightMotor = constrain(tempRightMotor,0,200);
         leftMotor  = constrain(tempLeftMotor,0,200);
   }
@@ -741,4 +822,33 @@ void  computeValues(){
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
-
+//Todo
+//void calculateSpeeds(){
+//  currentMillis = millis();
+//  if (currentMillis - lastCalculateSpeedTime > 250){
+//        lastCalculateSpeedTime = currentMillis;
+//        difference = goalSetting - currentHeading;
+//       
+//        if (currentMillis - lastHeadingTime > deltaT){
+//          lastHeadingTime = currentMillis;
+//          headingChange = currentHeading - lastHeading ;
+//          lastHeading = currentHeading;
+//        }
+//        
+//        if (rightMotor < 200 && leftMotor < 200){ // Reduces Integral windup when the actuator(motor) is saturated.
+//          speedDifferenceList[diffIndex] = difference;
+//          speedDiffIndex+=1;
+//          if (speedDiffIndex >= speedMemorySize) diffIndex = 0;
+//        
+//          speedSum = 0;
+//          for (int j = 0; j < speedMemorySize; j++){
+//            speedSum += speedDifferenceList[j];
+//          } 
+//          
+//        
+//          
+//        }
+//
+//     
+//  }
+//}
