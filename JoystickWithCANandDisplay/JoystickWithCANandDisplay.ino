@@ -13,29 +13,38 @@ SoftwareSerial dispSerial(8,9);
 // enable the CAN interface with the MCP2515 chip
 MCP_CAN CAN0(10); 
 
-int turnRate = 1200; // This is the number of milliseconds per degree in a turn.
+int turnRate = 1000; // This is the number of milliseconds per degree in a turn.
 
-int K = 5; //Proportional gain Constant. This is multiplied by the number of degrees difference.
-int I = 9; // Integral gain Constant. Since this is integer math, bit shifting is easier to implement.
-int D = 23; // Derivative gain Constant. Since this is integer math, bit shifting is needed to get fractions.
-int bitShiftK = 2;
-int bitShiftI = 6; // Example bit shift of 8 = division by 256. Depends on the Memory Size
-int bitShiftD = 4;
+int K = 64; //Proportional gain Constant. This is multiplied by the number of degrees difference.
+int I = 64; // Integral gain Constant. Since this is integer math, bit shifting is easier to implement.
+int D = 64; // Derivative gain Constant. Since this is integer math, bit shifting is needed to get fractions.
 
-int turnAdjust = 10; // feed forward value to command a turn
+//Set up bit shifts of 6 bits to make division by 64 
+int bitShiftK = 6;
+int bitShiftI = 14; // Example bit shift of 8 = division by 256. Depends on the Memory Size
+int bitShiftD = 6;
+
+//feed forward value to command a turn
+int leftTurn = -15;
+int rightTurn = 15; 
+
+int turnAdjust = 0; // feed forward value to command a turn
 
 int usedI=0;
 int usedK=0;
 int usedD=0;
 
-const int memorySize=400;
-int differenceList[400];
+const int memorySize=256;
+int differenceList[256];
 
 int deltaT = 1000; //milliseconds to calculate heading rate changes
 
 int zeroAdjustR = 0; //This is a constant to make sure the motors are sent back to zero.
 int zeroAdjustL = 0; //This is a constant to make sure the motors are sent back to zero.
-const int headingFixedOffset = -15; //This accounts for the orientation of the compass in the boat in degrees.
+
+int turnSetting = 15; //
+
+const int headingFixedOffset = 110; //This accounts for the orientation of the compass in the boat in tenths of a degree.
 int degreeCounter =0;
 
 //values used to send CAN message to the motor Controller
@@ -50,7 +59,7 @@ unsigned char rxBuf[8];
 
 
 //Set up modes of operation
-byte mode = 0; 
+int mode = 0; 
 int numberOfModes = 6; //This limits the number of displayed modes.
 char modeNames[6][6]={"Off ","Man. ","Turn ","Fix ","Fig8 ", "Full"};
 
@@ -58,7 +67,6 @@ char modeNames[6][6]={"Off ","Man. ","Turn ","Fix ","Fig8 ", "Full"};
 
 int diffIndex=0;
 long sum = 0;
-int drift = 0;
 
 int finalHeading = 0; // the goal for the turns
 
@@ -78,7 +86,7 @@ boolean upButtonReading = LOW;
 boolean rightButtonState = LOW;
 boolean leftButtonState = LOW;
 boolean downButtonState = LOW;
-boolean pushButtonState = 0;
+boolean pushButtonState = LOW;
 boolean upButtonState = LOW;
 
 boolean lastRightButtonState = LOW;
@@ -99,6 +107,7 @@ long lastDownButtonDebounceTime = 0;
 long lastPushButtonDebounceTime = 0;
 long lastUpButtonDebounceTime = 0;
 long doubleClickTimer = 0;
+long tripleClickTimer = 0;
 long speedChangeTimer = 0;
 long goalChangeTimer = 0;
 long lastModeDisplayTime = 0;
@@ -112,6 +121,7 @@ long delayItime = 0;
 // setup user interface times in milliseconds
 const long debounceDelay = 20;
 const long doubleClickThreshold = 350;
+const long tripleClickThreshold = 350;
 const byte speedChangeDelay = 50;
 const byte goalChangeDelay = 60;
 
@@ -156,13 +166,29 @@ void setup() {
   if(CAN0.begin(CAN_500KBPS) == CAN_OK) Serial.println("CAN0 init ok!!");
   else Serial.println("CAN0 init fail!!");
   
-  Serial.println("Possible Modes are:");
-  for (int g = 0; g < numberOfModes; g++){
-    Serial.print(g,DEC);
-    Serial.print(": ");
-    Serial.println(modeNames[g]);
-  }
-  Serial.println("Mode\tMilliseconds\tSpeed Setting\tLatitude\tLongitude\tHeading\tFinal\tGoal\tDifference\tSum\tDrift\tLeft\tRight");
+//  Serial.println("Possible Modes are:");
+//  for (int g = 0; g < numberOfModes; g++){
+//    Serial.print(g,DEC);
+//    Serial.print(": ");
+//    Serial.println(modeNames[g]);
+//  }
+  Serial.print("K = \t");
+  Serial.println(K);
+  Serial.print("I = \t");
+  Serial.println(I);
+  Serial.print("D = \t");
+  Serial.println(D);
+  Serial.print("BitShift K = \t");
+  Serial.println(bitShiftK);
+  Serial.print("BitShift I = \t");
+  Serial.println(bitShiftI);
+  Serial.print("BitShift D = \t");
+  Serial.println(bitShiftD);
+  usedK=K;
+  usedI=I;
+  usedD=D;
+      
+  Serial.println("#:Mode\tMillis\tSpeed\tLat\tLong\tHead\tFinal\tGoal\tDiff\tSum\tLeft\tRight");
     
   // make the pushbutton's pin an input:
   pinMode(rightButton, INPUT);
@@ -209,7 +235,7 @@ void setup() {
 // the loop routine runs over and over again forever:
 void loop() {
   currentMillis = millis();
-  if(!digitalRead(2)) readCANbus();
+  readCANbus();
 
   /***********************************************************************************************/
   if (mode == 0){ //Off 
@@ -228,36 +254,51 @@ void loop() {
   }
   /***********************************************************************************************/
   else if (mode == 1){ //Manual
-    if (upButtonState) incrementSpeed();
-    if (downButtonState) decrementSpeed();
-    if (rightButtonState) {
-          zeroAdjustR = -50;
-          zeroAdjustL = 50;
-          incrementGoal();
-          //usedI = 0;
-          memset(differenceList,0,sizeof(differenceList)); // clears the integrator
-          delayItime = currentMillis;
+    if (pushButtonState) { 
+      if (upButtonState)
+      {
+        goalSetting = currentHeading;
+        //speedSetting = 0;
+        memset(differenceList,0,sizeof(differenceList)); // clears the integrator
+      }
+      else if (downButtonState)
+      {
+        speedSetting = 0;
+      }
+      if (rightButtonState) {
+            incrementGoalby10();
+            //usedI = 0;
+            //memset(differenceList,0,sizeof(differenceList)); // clears the integrator
+            //delayItime = currentMillis;
+      }
+      else if (leftButtonState)  {
+            decrementGoalby10();
+            //usedI = 0;
+            //memset(differenceList,0,sizeof(differenceList)); // clears the integrator
+            //delayItime = currentMillis;
+      }
     }
-    else if (leftButtonState)  {
-          zeroAdjustR = 50;
-          zeroAdjustL = -50;
-          decrementGoal();
-          //usedI = 0;
-          memset(differenceList,0,sizeof(differenceList)); // clears the integrator
-          delayItime = currentMillis;
-    }
-    else {
-      zeroAdjustR = 0;
-      zeroAdjustL = 0;
+    else
+    {
+      if (upButtonState) incrementSpeed();
+      if (downButtonState) decrementSpeed();
+      if (rightButtonState) {
+            incrementGoal();
+            //usedI = 0;
+            //memset(differenceList,0,sizeof(differenceList)); // clears the integrator
+            //delayItime = currentMillis;
+      }
+      else if (leftButtonState)  {
+            decrementGoal();
+            //usedI = 0;
+            //memset(differenceList,0,sizeof(differenceList)); // clears the integrator
+            //delayItime = currentMillis;
+      }
     }
     
-    if (pushButtonState) { 
-      goalSetting = currentHeading;
-      speedSetting = 0;
-      zeroAdjustR = 0;
-      zeroAdjustL = 0;
-      memset(differenceList,0,sizeof(differenceList)); // clears the integrator
-    }
+
+    
+    
     computeValues();
     displayDesires();
     displayReadings();
@@ -275,14 +316,12 @@ void loop() {
         if (upButtonState) {
           finalHeading = currentHeading;
           goalSetting = currentHeading;
-          zeroAdjustR = 0;
-          zeroAdjustL = 0;
+          turnAdjust = 0;
         }
         if (downButtonState) {
           goalSetting = currentHeading;
-          finalHeading = currentHeading + 180;
-          zeroAdjustR = -turnAdjust;
-          zeroAdjustL = turnAdjust;
+          finalHeading = currentHeading + 1800;
+          turnAdjust = rightTurn;
         }
         if (leftButtonState) turnRate -=5;
         if (rightButtonState) turnRate +=5;  
@@ -291,69 +330,80 @@ void loop() {
         if (upButtonState) incrementSpeed();
         if (downButtonState) decrementSpeed();
         if (rightButtonState){
-          finalHeading +=45;
+          finalHeading += 900;
           turnChangeTimer += 1000;
-          zeroAdjustR = -turnAdjust;
-          zeroAdjustL = turnAdjust;
+          turnAdjust = rightTurn;
         }
         if (leftButtonState){
-          finalHeading -=45;
+          finalHeading -= 900;
           turnChangeTimer += 1000;
-          zeroAdjustR = turnAdjust;
-          zeroAdjustL = -turnAdjust;
+          turnAdjust = leftTurn;
         }
       }
     }
     
-   
-  
-    if (currentMillis - lastReadingDisplayTime > 186){
-        lastReadingDisplayTime = currentMillis;
-        char displayBuffer1[15];
-        if (pushButtonState){
-          sprintf(displayBuffer1,"END:%3i Rt:%4i", finalHeading, turnRate);
-        }
-        else
-        {
-          sprintf(displayBuffer1,"END:%3i H:%3i ", finalHeading,currentHeading);
-        }
-        dispSerial.write(254); //escape character
-        dispSerial.write(192); //Beginning of the second line
-        dispSerial.print(displayBuffer1);
-      }
-    implementTurn();
-    computeValues();
-    displayDesires();
-    sendCommands();
+    if (upButtonState) incrementSpeed();
+    if (downButtonState) decrementSpeed();
+    if (pushButtonState && upButtonState) {
+      modeEnable = true;
+      speedSetting = 70;
+    }
     
+    if (modeEnable){
+    
+      if (currentMillis - lastReadingDisplayTime > 186){
+          lastReadingDisplayTime = currentMillis;
+          char displayBuffer1[15];
+          if (pushButtonState){
+            sprintf(displayBuffer1,"END:%3i Rt:%4i", int(finalHeading/10.0), turnRate);
+          }
+          else
+          {
+            sprintf(displayBuffer1,"END:%3i H:%3i ", int(finalHeading/10.0),int(currentHeading/10.0));
+          }
+          dispSerial.write(254); //escape character
+          dispSerial.write(192); //Beginning of the second line
+          dispSerial.print(displayBuffer1);
+        }
+      implementTurn();
+      computeValues();
+      sendCommands();
+    }
+    
+    else{
+      dispSerial.write(254); //escape character
+      dispSerial.write(192); //Beginning of the second line
+      dispSerial.print("Press Button+Up"); 
+    }
+   displayDesires(); 
   }
   /***********************************************************************************************/
 
   else if (mode == 3){ //fix
    
     
-   float deltaX = desiredLatitude-currentLatitude;
-   float deltaY = desiredLongitude-currentLongitude;
-   
-   float radialError = sqrt(deltaX*deltaX + deltaY*deltaY);
-   
-   goalSetting = int(RAD_TO_DEG * (atan2(deltaY, deltaX)));
-   computeValues();
-   displayReadings();
-   sendCommands();
-    
-   if (currentMillis - lastReadingDisplayTime > 198){
-        lastReadingDisplayTime = currentMillis;
-        dispSerial.write(254); //escape character
-        dispSerial.write(133); 
-        char displayBuffer[14];
-        sprintf(displayBuffer,"H:%3i G:%3i", currentHeading,goalSetting);
-        dispSerial.print(displayBuffer);
-        dispSerial.write(254); //escape character
-        dispSerial.write(192); //Beginning of the second line
-        dispSerial.print("Dist:");
-        dispSerial.print(radialError);
-      }
+//   float deltaX = desiredLatitude-currentLatitude;
+//   float deltaY = desiredLongitude-currentLongitude;
+//   
+//   float radialError = sqrt(deltaX*deltaX + deltaY*deltaY);
+//   
+//   goalSetting = int(RAD_TO_DEG * (atan2(deltaY, deltaX)));
+//   computeValues();
+//   displayReadings();
+//   sendCommands();
+//    
+//   if (currentMillis - lastReadingDisplayTime > 198){
+//        lastReadingDisplayTime = currentMillis;
+//        dispSerial.write(254); //escape character
+//        dispSerial.write(133); 
+//        char displayBuffer[14];
+//        sprintf(displayBuffer,"H:%3i G:%3i", currentHeading,goalSetting);
+//        dispSerial.print(displayBuffer);
+//        dispSerial.write(254); //escape character
+//        dispSerial.write(192); //Beginning of the second line
+//        dispSerial.print("Dist:");
+//        dispSerial.print(radialError);
+//      }
   }
   /***********************************************************************************************/
 
@@ -367,27 +417,25 @@ void loop() {
     
     if (modeEnable){
       
-      if (degreeCounter < 90) finalHeading = startHeading + 90;
-      else if (degreeCounter < 180) finalHeading = startHeading + 180;
-      else if (degreeCounter < 270) finalHeading = startHeading + 270;
-      else if (degreeCounter < 360) finalHeading = startHeading + 180;
-      else if (degreeCounter < 450) finalHeading = startHeading + 90;
+      if      (degreeCounter < 90)  finalHeading = startHeading + 900;
+      else if (degreeCounter < 180) finalHeading = startHeading + 1800;
+      else if (degreeCounter < 270) finalHeading = startHeading + 2700;
+      else if (degreeCounter < 360) finalHeading = startHeading + 1800;
+      else if (degreeCounter < 450) finalHeading = startHeading + 900;
       else if (degreeCounter < 540) finalHeading = startHeading ;
       else degreeCounter = 0;
       
       if (degreeCounter < 270){
-          zeroAdjustR = -turnAdjust;
-          zeroAdjustL =  turnAdjust;
+          turnAdjust = rightTurn;
       }
       else { 
-        zeroAdjustR =  turnAdjust;
-        zeroAdjustL = -turnAdjust;
+        turnAdjust = leftTurn;
       }
       
       if (currentMillis - lastReadingDisplayTime > 186){
         lastReadingDisplayTime = currentMillis;
         char displayBuffer1[15];
-        sprintf(displayBuffer1,"END:%3i H:%3i ", finalHeading,currentHeading);
+        sprintf(displayBuffer1,"END:%3i H:%3i ", int(finalHeading/10.0),int(currentHeading/10.0));
         dispSerial.write(254); //escape character
         dispSerial.write(192); //Beginning of the second line
         dispSerial.print(displayBuffer1);
@@ -406,52 +454,43 @@ void loop() {
     
   }
   
-    /***********************************************************************************************/
-
+/***********************************************************************************************/
   else if (mode == 5){ //Full Throttle
+    usedI=0;
+    usedD=0;
     if (upButtonState) {
       speedSetting = 100;
       usedK=0;
-      usedI=0;
-      usedD=0;
     }
     else if (downButtonState) {
       speedSetting = -99;
       usedK=0;
-      usedI=0;
-      usedD=0;
     }
-    else {
-      speedSetting=0;
-      usedK=K;
-      usedI=I;
-      usedD=D;
-    }
-    
-    if (rightButtonState) {
-      goalSetting = currentHeading + 90;
+    else if (rightButtonState) {
+      goalSetting = currentHeading + 900;
       usedK = 100;
     }
     else if (leftButtonState){
-      goalSetting = currentHeading - 90;
+      goalSetting = currentHeading - 900;
       usedK = 100;
     }
     else {
       goalSetting = currentHeading;
-      usedK = K;
-      memset(differenceList,0,sizeof(differenceList)); // clears the integrator
+      speedSetting=0;
+      usedK=0;
     }
         
+    
+    displayDesires();
     if (currentMillis - lastReadingDisplayTime > 186){
         lastReadingDisplayTime = currentMillis;
-        char displayBuffer1[15];
-        sprintf(displayBuffer1,"L:%3i R%3i ", leftMotor,rightMotor);
+        char displayBuffer[15];
+        sprintf(displayBuffer,"L:%3i R%3i ", leftMotor,rightMotor);
         dispSerial.write(254); //escape character
         dispSerial.write(192); //Beginning of the second line
-        dispSerial.print(displayBuffer1);
-    }    
+        dispSerial.print(displayBuffer);
+    }
     computeValues();
-    displayDesires();
     sendCommands();
   
   }
@@ -531,6 +570,7 @@ void loop() {
          }
       }
       else {
+        
          dispSerial.write(254); //escape character
          dispSerial.write(206); //Move Cursor to the bottom last point on a 16x2 display
          dispSerial.print(" ");
@@ -571,26 +611,31 @@ void loop() {
 void implementTurn(){
 //Increment 1 degree in the correct direction according to the compass 
     //Considerations for crossing 0/360 are implemented.
-    if (finalHeading > 360) finalHeading -= 360;
-    if (finalHeading < 0) finalHeading += 360;
-    if (goalSetting > 360) goalSetting -= 360;
-    if (goalSetting < 0) goalSetting += 360;
+   
+    if (finalHeading > 3600) finalHeading -= 3600;
+    if (finalHeading < 0) finalHeading += 3600;
+    if (goalSetting > 3600) goalSetting -= 3600;
+    if (goalSetting < 0) goalSetting += 3600;
     
     if (currentMillis - lastDegreeTime > turnRate){
         lastDegreeTime = currentMillis;
-        if (abs(finalHeading - goalSetting) < 180){
-          if (finalHeading > goalSetting) goalSetting +=1;
-          else if (finalHeading < goalSetting) goalSetting -=1;
-          else finalHeading = goalSetting;
+        if (abs(finalHeading - goalSetting) < 1800){
+          if (finalHeading > goalSetting) goalSetting +=10;
+          else if (finalHeading < goalSetting) goalSetting -=10;
+          else {
+           finalHeading = goalSetting;
+           turnAdjust = 0;
+          }
         }
         else {
-          if      (finalHeading < goalSetting && finalHeading >  180) goalSetting -=1;
-          else if (finalHeading < goalSetting && finalHeading <= 180) goalSetting +=1;
-          else if (finalHeading > goalSetting && finalHeading >  180) goalSetting -=1;
-          else if (finalHeading > goalSetting && finalHeading <= 180) goalSetting +=1;
+          if      (finalHeading < goalSetting && finalHeading >  1800) goalSetting -=10;
+          else if (finalHeading < goalSetting && finalHeading <= 1800) goalSetting +=10;
+          else if (finalHeading > goalSetting && finalHeading >  1800) goalSetting -=10;
+          else if (finalHeading > goalSetting && finalHeading <= 1800) goalSetting +=10;
           else finalHeading = goalSetting;
         }
         degreeCounter+=1;
+        if (degreeCounter > 540) degreeCounter = 0;
     }
 }
 //Double Clikcing changes mode and resets settings
@@ -604,10 +649,13 @@ void doubleClickRoutine(){
   dispSerial.print(modeNames[mode]);
   modeEnable=false;
   goalSetting = currentHeading;
+  finalHeading = currentHeading;
   startHeading = currentHeading;
   speedSetting = 0;
   zeroAdjustR = 0;
   zeroAdjustL = 0;
+  turnSetting = 0; 
+
   usedI = I;
   usedK = K;
   usedD = D;
@@ -643,8 +691,6 @@ void sendCommands(){
     Serial.print("\t");
     Serial.print(sum);
     Serial.print("\t");
-    Serial.print(drift);
-    Serial.print("\t");
     Serial.print(leftMotor);
     Serial.print("\t");
     Serial.println(rightMotor);
@@ -677,8 +723,8 @@ void decrementSpeed(){
 void incrementGoal(){
   if (currentMillis - goalChangeTimer > goalChangeDelay){
     goalChangeTimer=currentMillis;
-    goalSetting +=1;
-    if (goalSetting > 360) goalSetting = 1;
+    goalSetting +=10;
+    if (goalSetting > 3600) goalSetting = 1;
   }
 }
 /***********************************************************************************************/
@@ -686,8 +732,26 @@ void incrementGoal(){
 void decrementGoal(){
   if (currentMillis - goalChangeTimer > goalChangeDelay){
     goalChangeTimer=currentMillis;
-    goalSetting -=1;
-    if (goalSetting < 0) goalSetting = 359;
+    goalSetting -=10;
+    if (goalSetting < 0) goalSetting = 3599;
+  }
+} 
+/***********************************************************************************************/
+/***********************************************************************************************/
+void incrementGoalby10(){
+  if (currentMillis - goalChangeTimer > goalChangeDelay){
+    goalChangeTimer=currentMillis+1000;
+    goalSetting +=100;
+    if (goalSetting > 3600) goalSetting = 1;
+  }
+}
+/***********************************************************************************************/
+/***********************************************************************************************/
+void decrementGoalby10(){
+  if (currentMillis - goalChangeTimer > goalChangeDelay){
+    goalChangeTimer=currentMillis+1000;
+    goalSetting -=100;
+    if (goalSetting < 0) goalSetting = 3599;
   }
 } 
 /***********************************************************************************************/
@@ -709,7 +773,7 @@ void readCANbus(){
 //  }
 //  Serial.println();
    if (rxId == 0x43c){
-     heading1 = (rxBuf[0]*256 + rxBuf[1])/10.0;
+     heading1 = (rxBuf[0]*256 + rxBuf[1]);
    }
    else if (rxId == 0x43d){
      int vSenseReading = rxBuf[0]*256 + rxBuf[1];
@@ -721,7 +785,7 @@ void readCANbus(){
      starVoltage = map(starVsenseReading,0,630,0,120);
    }
    else if (rxId == 0x43e){
-     headingReading = (rxBuf[0]*256 + rxBuf[1])/10.0;
+     headingReading = (rxBuf[0]*256 + rxBuf[1]);
      gpsSpeed = (rxBuf[2]*256 + rxBuf[3])*1.15078;
      gpsAngle = (rxBuf[4]*256 + rxBuf[5]);
      gpsSats  = rxBuf[6];
@@ -741,10 +805,10 @@ void readCANbus(){
      
    }
   
-  currentHeading = int(headingReading + headingFixedOffset);
+  currentHeading = int(heading1 + headingFixedOffset);
   
-  if (currentHeading > 360) currentHeading -= 360;
-  if (currentHeading < 0) currentHeading += 360;
+  if (currentHeading > 3600) currentHeading -= 3600;
+  if (currentHeading < 0) currentHeading += 3600;
   
   if (firstHeading){
     goalSetting = currentHeading;
@@ -759,19 +823,19 @@ void displayDesires(){
     dispSerial.write(254); //escape character
     dispSerial.write(133); 
     char displayBuffer[14];
-    sprintf(displayBuffer,"S:%3i G:%3i", speedSetting,goalSetting);
+    sprintf(displayBuffer,"S:%3i G:%3i", speedSetting,int(goalSetting/10));
     dispSerial.print(displayBuffer);
   }
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
 void displayReadings(){
-  if (currentMillis - lastReadingDisplayTime > 283){
+  if (currentMillis - lastReadingDisplayTime > 183){
     lastReadingDisplayTime = currentMillis;
     dispSerial.write(254); //escape character
     dispSerial.write(192); //Beginning of the second line
     char displayBuffer[18];
-    sprintf(displayBuffer,"N%2i S:%2i H:%3i", gpsSats,gpsSpeed,currentHeading);
+    sprintf(displayBuffer,"N%2i S:%2i H:%3i", gpsSats,gpsSpeed,int(currentHeading/10.0));
     dispSerial.print(displayBuffer);
 //    dispSerial.print("N:");
 //    dispSerial.print(gpsSats);
@@ -788,37 +852,33 @@ void  computeValues(){
   currentMillis = millis();
   if (currentMillis - lastCalculateTime > 50){
         lastCalculateTime = currentMillis;
-        difference = goalSetting - currentHeading;
-       
+        
         if (currentMillis - lastHeadingTime > deltaT){
           lastHeadingTime = currentMillis;
           headingChange = currentHeading - lastHeading ;
+          if (headingChange <= -1800)  headingChange += 3600;
+          else if (headingChange > 1800)  headingChange -= 3600;
           lastHeading = currentHeading;
         }
+       
+        difference = goalSetting - currentHeading;
+        if (difference <= -1800)  difference += 3600;
+        if (difference >= 1800)  difference -= 3600;
         
-        if (difference <= -180)  difference += 360;
-        else if (difference > 180)  difference -= 360;
-
-        if (rightMotor < 200 && leftMotor < 200){ // Reduces Integral windup when the actuator(motor) is saturated.
-          differenceList[diffIndex] = difference;
-          diffIndex+=1;
-          if (diffIndex >= memorySize) diffIndex = 0;
+        differenceList[diffIndex] = difference;
+        diffIndex+=1;
+        if (diffIndex >= memorySize) diffIndex = 0;
         
-          sum = 0;
-          for (int j = 0; j < memorySize; j++){
-            sum += differenceList[j];
-          } 
-          
-        
-          drift = sum >> bitShiftI; //This is like division 
+        sum = 0;
+        for (int j = 0; j < memorySize; j++){
+          sum += differenceList[j];
         }
 
-        int tempRightMotor = speedSetting - ((usedK*difference) >> bitShiftK) - zeroAdjustR - ((usedI*sum) >> bitShiftI) - ((usedD*headingChange)>> bitShiftD) + 100;
-        int tempLeftMotor  = speedSetting + ((usedK*difference) >> bitShiftK) + zeroAdjustL + ((usedI*sum) >> bitShiftI) + ((usedD*headingChange)>> bitShiftD) + 100;
+        int tempRightMotor = speedSetting - turnSetting - ((usedK*difference) >> bitShiftK) - zeroAdjustR - ((usedI*sum) >> bitShiftI) - ((usedD*headingChange)>> bitShiftD) + 100;
+        int tempLeftMotor  = speedSetting + turnSetting + ((usedK*difference) >> bitShiftK) + zeroAdjustL + ((usedI*sum) >> bitShiftI) + ((usedD*headingChange)>> bitShiftD) + 100;
         rightMotor = constrain(tempRightMotor,0,200);
         leftMotor  = constrain(tempLeftMotor,0,200);
-  }
-        
+     }       
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
