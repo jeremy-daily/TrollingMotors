@@ -1,6 +1,13 @@
-#include <Canbus.h>
-#include <Wire.h>
 
+#include <SPI.h>
+#include <mcp_can.h>
+#include <mcp_can_dfs.h>
+#include <Wire.h>
+//required for fmod()
+#include <math.h>;
+
+// enable the CAN interface with the MCP2515 chip
+MCP_CAN CAN0(10); 
 
 #include <Adafruit_GPS.h>
 #include <SoftwareSerial.h>
@@ -13,26 +20,34 @@ int compassAddress = 0x42 >> 1;
 byte headingData[2];
 int headingValue = 0;
 
+byte data[8];
 
-//Set up the pins for SPI
-#define	P_MOSI	      B,3 //Pin 11
-#define	P_MISO	      B,4 //Pin 12
-#define	P_SCK	      B,5 //Pin 13
-#define	MCP2515_CS    B,2 //Pin 10
-#define	MCP2515_INT   D,2 //Pin 2
-
-#include <global.h>
-#include <mcp2515.h>
-#include <mcp2515_defs.h>
+//CAN interface messages (Borrowed from the example).
+long unsigned int rxId;
+unsigned char len = 0;
+unsigned char rxBuf[8];
 
 
-
+double lon;
+double lat;
 
 //Initialize Timing varialbles
 unsigned long previousMillis1000 = 0;
 unsigned long previousMillis200 = 0;
 unsigned long previousMillis20 = 0;
 
+unsigned long currentMillis =0;
+
+double x2lat=  0   ;  //enter a latitude point here   this is going to be your waypoint
+double x2lon=  0    ;  // enter a longitude point here  this is going to be your waypoint
+
+double dist_calc=0;
+double dist_calc2=0;
+double diflat=0;
+double diflon=0;
+int headerValue=0;
+byte mode;
+byte buttons;
 
 void setup()
 { 
@@ -47,12 +62,51 @@ void setup()
   useInterrupt(true);
   
   //Initialize MCP2515 CAN controller at the specified speed
-  if(Canbus.init(CANSPEED_500)) 
-    Serial.println("CAN Init ok");
-  else 
-    Serial.println("Can't init CAN");
- 
-  
+   Serial.println("Setting up CAN0..."); //J1939
+  if(CAN0.begin(CAN_500KBPS) == CAN_OK) Serial.println("CAN0 init ok!!");
+  else Serial.println("CAN0 init fail!!");
+
+    Serial.print("Millis");
+    Serial.print("\t");
+    Serial.print("Head");
+    Serial.print("\t");
+    Serial.print("Speed");
+    Serial.print("\t");
+    Serial.print("Angle");
+    Serial.print("\t");
+    Serial.print("Sats");
+    Serial.print("\t");
+    Serial.print("Fix");
+    Serial.print("\t");
+    Serial.print("Quality");
+    Serial.print("\t");
+    Serial.print("Long");
+    Serial.print("\t");
+    Serial.print("Long (dec)");
+    Serial.print("\t");
+    Serial.print("Lat");
+    Serial.print("\t");
+    Serial.print("Lat (dec)");
+    Serial.print("\t");
+    Serial.print("Alt");
+    Serial.print("\t");
+    Serial.print("Date");
+    Serial.print("\t");
+    Serial.print("Time");
+    Serial.print("\t");
+    Serial.print("Year");
+    Serial.print(GPS.hour, DEC); Serial.print(':');
+    Serial.print(GPS.minute, DEC); Serial.print(':');
+    Serial.print(GPS.seconds, DEC); Serial.print('.');
+    Serial.print(GPS.milliseconds);
+    Serial.print("\t");
+    Serial.print("Fixed Lon");
+    Serial.print("\t");
+    Serial.print("Fixed Lat");
+    Serial.print("\t");
+    Serial.println("Distance");
+
+    
 }
  
 // Interrupt is called once a millisecond, looks for any new GPS data, and stores it
@@ -82,11 +136,29 @@ void useInterrupt(boolean v) {
 }
 
 uint32_t timer = millis();
+void readCANbus(){
+  CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
+  rxId = CAN0.getCanId();                    // Get message ID
+   if (rxId == 0x777){
+     mode = rxBuf[0];
+     buttons = rxBuf[1];
+   }
+   if (mode == 3 && bitRead(buttons, 4)){
+    x2lat=lat;
+    x2lon=lon;
+   }
+   if (mode == 4 && bitRead(buttons, 4)){
+    x2lat=lat;
+    x2lon=lon;
+   }
+   
+}
 
 void loop()
 {
+  readCANbus();
   
-  if (GPS.newNMEAreceived()) {
+   if (GPS.newNMEAreceived()) {
     // a tricky thing here is if we print the NMEA sentence, or data
     // we end up not listening and catching other sentences! 
     // so be very wary if using OUTPUT_ALLDATA and trytng to print out data
@@ -96,12 +168,9 @@ void loop()
       return;  // we can fail to parse a sentence in which case we should just wait for another
   }
   
-  tCAN message;
+  currentMillis = millis();
    
-  unsigned long currentMillis = millis();
-  
-  
-  if(currentMillis - previousMillis200 > 50) { //Perform this every 100 milliseconds
+  if(currentMillis - previousMillis200 >= 100) { //Perform this every 100 milliseconds
     previousMillis200 = currentMillis;   
     
      // Send a "A" command to the HMC6352
@@ -109,7 +178,7 @@ void loop()
       Wire.beginTransmission(compassAddress);
       Wire.write("A");              // The "Get Data" command
       Wire.endTransmission();
-      delay(1);                   // The HMC6352 needs at least a 70us (microsecond) delay
+      delay(2);                   // The HMC6352 needs at least a 70us (microsecond) delay
       // after this command.  Using 10ms just makes it safe
       // Read the 2 heading bytes, MSB first
       // The resulting 16bit word is the compass heading in 10th's of a degree
@@ -122,70 +191,183 @@ void loop()
         i++;
       }
       headingValue = headingData[0]*256 + headingData[1];  // Put the MSB and LSB together
-      //Serial.print("Current heading: ");
-      Serial.print(int (headingValue / 10));     // The whole number part of the heading
-      Serial.print(".");
-      Serial.println(int (headingValue % 10));     // The fractional part of the heading
-      //Serial.println(" degrees");
+      CAN0.sendMsgBuf(0x43c, 0, 2, headingData );
     
-    
-    message.id = 0x43C; //Made up Broadcast message
-    message.header.rtr = 0;
-    message.header.length = 2;
-    message.data[0] = headingData[0];
-    message.data[1] = headingData[1]; 
-    
-                   
-    mcp2515_send_message(&message);
+      
+
   }
+  currentMillis = millis();
+  if(currentMillis - previousMillis1000 >= 1000){
+    previousMillis1000=currentMillis-100;
   
-  if(currentMillis - previousMillis1000 > 1000){
-    previousMillis1000=currentMillis;
-    message.id = 0x43E; //Made up Broadcast message
-    message.header.rtr = 0;
-    message.header.length = 8;
-    message.data[0] = headingData[0];
-    message.data[1] = headingData[1]; 
-    message.data[2] = highByte(int(GPS.speed)); 
-    message.data[3] = lowByte(int(GPS.speed)); 
-    message.data[4] = highByte(int(GPS.angle)); 
-    message.data[5] = lowByte(int(GPS.angle)); 
-    message.data[6] = lowByte(int(GPS.satellites)); 
-    message.data[7] = lowByte(int(GPS.fix)); 
+    lon = convertDegMinToDecDeg(GPS.longitude);
+    lat = convertDegMinToDecDeg(GPS.latitude);
+  
+     data[0] = headingData[0];
+     data[1] = headingData[1]; 
+     data[2] = highByte(int(GPS.speed)); 
+     data[3] = lowByte(int(GPS.speed)); 
+     data[4] = highByte(int(GPS.angle)); 
+     data[5] = lowByte(int(GPS.angle)); 
+     data[6] = lowByte(int(GPS.satellites)); 
+     data[7] = lowByte(int(GPS.fix)); 
                    
-    mcp2515_send_message(&message);
-  
-    byte * latBuffer = (byte *) &GPS.latitude;
-    byte * lonBuffer = (byte *) &GPS.longitude;
-//    byte latBuffer[4];
-//      latBuffer[0] = highByte(int(GPS.latitude));
-//      latBuffer[1] = lowByte(int(GPS.latitude));
-//      latBuffer[2] = highByte(int(GPS.lat));
-//      latBuffer[3] = lowByte(int(GPS.lat));
+   CAN0.sendMsgBuf(0x43e, 0, 8,  data );
+   
     
-//    byte lonBuffer[4];
-//      lonBuffer[0] = highByte(int(GPS.longitude));
-//      lonBuffer[1] = lowByte(int(GPS.longitude));
-//      lonBuffer[2] = highByte(int(GPS.lon));
-//      lonBuffer[3] = lowByte(int(GPS.lon));  
-  
-    message.id = 0x43F; //Made up Broadcast message
-    message.header.rtr = 0;
-    message.header.length = 8;
-    message.data[0] = latBuffer[0];
-    message.data[1] = latBuffer[1]; 
-    message.data[2] = latBuffer[2]; 
-    message.data[3] = latBuffer[3]; 
-    message.data[4] = lonBuffer[0]; 
-    message.data[5] = lonBuffer[1]; 
-    message.data[6] = lonBuffer[2]; 
-    message.data[7] = lonBuffer[3]; 
+    byte * altBuffer = (byte *) &GPS.altitude;
+//    Serial.println(lon,8);
+//    Serial.println(int(lon));
+    double fractions = (lon - int(lon))*10000000; 
+    unsigned long fracLongBuff= long(fractions);
+//    Serial.println(fracLongBuff);
+//     Serial.println(fracLongBuff,HEX);
+//      Serial.println(byte((fracLongBuff & 0x00FF0000) >> 16),HEX);
+//     Serial.println(byte((fracLongBuff & 0x0000FF00) >> 8),HEX);
+//     Serial.println(byte(fracLongBuff & 0x000000FF),HEX);
+//   Serial.println();
+//    
+     data[0] = byte(lon);
+     data[1] = byte((fracLongBuff & 0x00FF0000) >> 16); 
+     data[2] = byte((fracLongBuff & 0x0000FF00) >> 8) ;
+     data[3] = byte(fracLongBuff & 0x000000FF);
+     
+     fractions = (lat - int(lat))*10000000; 
+     unsigned long fracLatBuff= long(fractions);
+    
+     data[4] = byte(lat); 
+     data[5] = byte((fracLatBuff & 0x00FF0000) >> 16);
+     data[6] = byte((fracLatBuff & 0x0000FF00) >> 8) ;
+     data[7] = byte(fracLatBuff & 0x000000FF);
                    
-    mcp2515_send_message(&message);
+     CAN0.sendMsgBuf(0x43f, 0, 8,  data );
   
-    //Serial.print("Voltage Sense: ");
-    //Serial.println(vSenseReading);
+     data[0] = byte(GPS.day);
+     data[1] = byte(GPS.month); 
+     data[2] = highByte(int(GPS.year)); 
+     data[3] = lowByte(int(GPS.year)); 
+     data[4] = altBuffer[0]; 
+     data[5] = altBuffer[1]; 
+     data[6] = altBuffer[2]; 
+     data[7] = altBuffer[3]; 
+                   
+    CAN0.sendMsgBuf(0x440, 0, 8,  data );
+  
+    Serial.print(currentMillis);
+    Serial.print("\t");
+    Serial.print(int (headingValue / 10));     // The whole number part of the heading
+    Serial.print(".");
+    Serial.print(int (headingValue % 10));     // The fractional part of the heading
+    Serial.print("\t");
+    Serial.print(GPS.speed);
+    Serial.print("\t");
+    Serial.print(GPS.angle);
+    Serial.print("\t");
+    Serial.print(GPS.satellites);
+    Serial.print("\t");
+    Serial.print(GPS.fix);
+    Serial.print("\t");
+    Serial.print(GPS.fixquality);
+    Serial.print("\t");
+    Serial.print(GPS.longitude,8);
+    Serial.print("\t");
+    Serial.print(lon,8);     // The whole number part of the heading
+    Serial.print("\t");
+    Serial.print(GPS.latitude,8);
+    Serial.print("\t");
+    Serial.print(lat,8);
+    Serial.print("\t");
+    Serial.print(GPS.altitude);
+    Serial.print("\t");
+    Serial.print(GPS.month);
+    Serial.print("/");
+    Serial.print(GPS.day);
+    Serial.print("/");
+    Serial.print(GPS.year);
+    Serial.print("\t");
+    Serial.print(GPS.hour, DEC); Serial.print(':');
+    Serial.print(GPS.minute, DEC); Serial.print(':');
+    Serial.print(GPS.seconds, DEC); Serial.print('.');
+    Serial.print(GPS.milliseconds);
+    Serial.print("\t");
+    Serial.print(x2lon,8);
+    Serial.print("\t");
+    Serial.print(x2lat,8);
+    Serial.print("\t");
+    float dist = distance(x2lon, x2lat);
+    Serial.print(dist);
+    Serial.print("\t");
+    headerValue = dirToFixedPoint (x2lon, x2lat );
+    Serial.print(int (headerValue / 10));     // The whole number part of the heading
+    Serial.print(".");
+    Serial.println(int (headerValue % 10));     // The fractional part of the heading
+    
+     data[0] = highByte(int(headerValue)); 
+     data[1] = lowByte(int(headerValue)); 
+     data[2] = highByte(int(dist)); 
+     data[3] = lowByte(int(dist)); 
+     data[4] = byte(GPS.hour); 
+     data[5] = byte(GPS.minute); 
+     data[6] = byte(GPS.seconds); 
+     data[7] = byte(GPS.milliseconds/10); 
+                   
+    CAN0.sendMsgBuf(0x440, 0, 8,  data );
   }
-  
  
 }
+
+ 
+// converts lat/long from Adafruit
+// degree-minute format to decimal-degrees
+double convertDegMinToDecDeg (float degMin) {
+  double min = 0.0;
+  double decDeg = 0.0;
+ 
+  //get the minutes, fmod() requires double
+  min = fmod((double)degMin, 100.0);
+ 
+  //rebuild coordinates in decimal degrees
+  degMin = (int) ( degMin / 100 );
+  decDeg = degMin + ( min / 60 );
+ 
+  return decDeg;
+}
+
+double  distance(double x2lon, double x2lat ){
+  double flat1=lat;     // flat1 = our current latitude. lat is from the gps data. 
+  double flon1=lon;  // flon1 = our current longitude. lon is from the fps data.
+ 
+  //------------------------------------------ distance formula below. Calculates distance from current location to waypoint
+  diflat=radians(x2lat-flat1);  //notice it must be done in radians
+  flat1=radians(flat1);    //convert current latitude to radians
+  x2lat=radians(x2lat);  //convert waypoint latitude to radians
+  diflon=radians((x2lon)-(flon1));   //subtract and convert longitudes to radians
+  double dist_calc = (sin(diflat/2.0)*sin(diflat/2.0));
+  dist_calc2= cos(flat1);
+  dist_calc2*=cos(x2lat);
+  dist_calc2*=sin(diflon/2.0);                                       
+  dist_calc2*=sin(diflon/2.0);
+  dist_calc +=dist_calc2;
+  dist_calc=(2*atan2(sqrt(dist_calc),sqrt(1.0-dist_calc)));
+  dist_calc*=6371000.0; //Converting to meters
+  return dist_calc;
+  
+}
+
+int dirToFixedPoint (double x2lon, double x2lat ){
+ double flat1=lat;     // flat1 = our current latitude. lat is from the gps data. 
+ double flon1=lon;  // flon1 = our current longitude. lon is from the fps data.
+ flat1=radians(flat1);    //convert current latitude to radians
+ x2lat=radians(x2lat);  //convert waypoint latitude to radians
+ diflon=radians((x2lon)-(flon1));   //subtract and convert longitudes to radians
+ flon1 = radians(flon1);  //also must be done in radians
+ x2lon = radians(x2lon);  //radians duh.
+ double head = atan2(sin(x2lon-flon1)*cos(x2lat),cos(flat1)*sin(x2lat)-sin(flat1)*cos(x2lat)*cos(x2lon-flon1)); //,2*3.1415926535;
+ head = head*1800/3.1415926535;  // convert from radians to tenths of degrees
+
+  int header =head; //make it a integer now
+
+  if(header<0) header += 3600;   //if the heading is negative then add 360 to make it positive
+  return header;
+}
+ 

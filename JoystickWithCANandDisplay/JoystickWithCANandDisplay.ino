@@ -52,6 +52,8 @@ int rightMotor = 0;
 int leftMotor = 0;
 byte motorMessage[2];
 
+byte joyMessage[2];
+    
 //CAN interface messages (Borrowed from the example).
 long unsigned int rxId;
 unsigned char len = 0;
@@ -115,6 +117,7 @@ long lastDesireDisplayTime = 0;
 long lastReadingDisplayTime = 0;
 long lastDisplayTime = 0;
 long lastSentTime = 0;
+long lastJoyTime = 0;
 long loopCount = 0;
 long delayItime = 0;
 
@@ -588,23 +591,7 @@ void loop() {
      dispSerial.write(207); //Move Cursor to the bottom last point on a 16x2 display
      dispSerial.print(" ");
   }
-  
-//  if (currentMillis - lastDisplayTime > 500){
-//    lastDisplayTime = currentMillis;
-//    Serial.print("Switch States: Button = ");
-//    Serial.print(pushButtonState);
-//    Serial.print(", Left = ");
-//    Serial.print(leftButtonState);
-//    Serial.print(", Right = ");
-//    Serial.print(rightButtonState);
-//    Serial.print(", Up = ");
-//    Serial.print(upButtonState);
-//    Serial.print(", Down = ");
-//    Serial.println(downButtonState);
-//  }
-  
-  //loopCount+=1;
-  //Serial.println(loopCount);
+  sendJoyStick();
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
@@ -698,6 +685,24 @@ void sendCommands(){
     motorMessage[0]=byte(rightMotor);
     motorMessage[1]=byte(leftMotor);
     CAN0.sendMsgBuf(0x31A, 0, 2, motorMessage );
+  }
+}
+/***********************************************************************************************/
+/***********************************************************************************************/
+void sendJoyStick(){
+  currentMillis=millis();
+  if (currentMillis - lastJoyTime >=50){
+    lastJoyTime = currentMillis;
+
+    joyMessage[0]=byte(mode);
+    bitWrite(joyMessage[1],0,upButtonState);
+    bitWrite(joyMessage[1],1,downButtonState);
+    bitWrite(joyMessage[1],2,leftButtonState);
+    bitWrite(joyMessage[1],3,rightButtonState);
+    bitWrite(joyMessage[1],4,pushButtonState);
+    bitWrite(joyMessage[1],7,modeEnable);
+    
+    CAN0.sendMsgBuf(0x777, 0, 2, joyMessage );
   }
 }
 /***********************************************************************************************/
