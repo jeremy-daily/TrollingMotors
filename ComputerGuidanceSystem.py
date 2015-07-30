@@ -64,7 +64,7 @@ NON_BLOCKING_IO                                   =             0  # For Non-Blo
 BLOCK_INFINITE                                    =             0  # For Non-Blocking calls to send/read.
 
 BLOCK_UNTIL_DONE                                  =             0  # J1939 Address claim, wait until done
-RETURN_BEFORE_COMPLETION                          =             2  # J1939 Address claim, don't wait
+RETURN_BEFORE_COMPLETION                          =             2  # J-1939 Address claim, don't wait
 
 CONVERTED_MODE                                    =             1  # J1708 RP1210Mode="Converted"
 RAW_MODE                                          =             0  # J1708 RP1210Mode="Raw"
@@ -872,22 +872,23 @@ while True:
             goal -=360
         if goal < 0:
             goal +=360
-            
-        difference=goal-heading
         
-        differenceList[i]=difference
-        sum=0
-        for d in differenceList:
-            sum+=float(d)
-        drift=sum/float(memorySize),
-        i+= 1
-        if i>=memorySize:
-            i=0
-        if difference <= -180:
-            difference+=360
-        elif difference > 180:
-            difference-=360
-        K=2
+        if heading < 360:
+            difference=goal-heading
+        
+            differenceList[i]=difference
+            sum=0
+            for d in differenceList:
+                sum+=float(d)
+            drift=sum/float(memorySize),
+            i+= 1
+            if i>=memorySize:
+                i=0
+            if difference <= -180:
+                difference+=360
+            elif difference > 180:
+                difference-=360
+        K=1.8
         I=0.4
         rightMotor=int(speed - K*difference - adjust - I*drift[0] + 100)
         leftMotor =int(speed + K*difference + adjust + I*drift[0] + 100)
@@ -900,7 +901,7 @@ while True:
         if leftMotor < 0:
             leftMotor = 0
            
-        SendCANSpeedMessage( nClientID,leftMotor,rightMotor )
+        SendCANSpeedMessage( nClientID,rightMotor,leftMotor )
         LastTimeRequestsSent = time() 
 
     

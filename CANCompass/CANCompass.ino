@@ -1,4 +1,4 @@
-
+    
 #include <SPI.h>
 #include <mcp_can.h>
 #include <mcp_can_dfs.h>
@@ -8,6 +8,8 @@
 
 // enable the CAN interface with the MCP2515 chip
 MCP_CAN CAN0(10); 
+
+const int headingOffset = -20; //Compensates for the mount of the compass in the case. Tenths
 
 #include <Adafruit_GPS.h>
 #include <SoftwareSerial.h>
@@ -48,6 +50,7 @@ double diflon=0;
 int headerValue=0;
 byte mode;
 byte buttons;
+byte headingValueArray[2];
 
 void setup()
 { 
@@ -104,9 +107,11 @@ void setup()
     Serial.print("\t");
     Serial.print("Fixed Lat");
     Serial.print("\t");
-    Serial.println("Distance");
+    Serial.print("Distance");
+    Serial.print("\t");
+    Serial.println("Goal");
 
-    
+    previousMillis1000 = millis();
 }
  
 // Interrupt is called once a millisecond, looks for any new GPS data, and stores it
@@ -136,6 +141,7 @@ void useInterrupt(boolean v) {
 }
 
 uint32_t timer = millis();
+
 void readCANbus(){
   CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
   rxId = CAN0.getCanId();                    // Get message ID
@@ -143,11 +149,11 @@ void readCANbus(){
      mode = rxBuf[0];
      buttons = rxBuf[1];
    }
-   if (mode == 3 && bitRead(buttons, 4)){
+   if (mode == 3 && bitRead(buttons, 4)){ //Fix
     x2lat=lat;
     x2lon=lon;
    }
-   if (mode == 4 && bitRead(buttons, 4)){
+   if (mode == 4 && bitRead(buttons, 4)){ //Figure 8
     x2lat=lat;
     x2lon=lon;
    }
@@ -158,7 +164,7 @@ void loop()
 {
   readCANbus();
   
-   if (GPS.newNMEAreceived()) {
+  if (GPS.newNMEAreceived()) {
     // a tricky thing here is if we print the NMEA sentence, or data
     // we end up not listening and catching other sentences! 
     // so be very wary if using OUTPUT_ALLDATA and trytng to print out data
@@ -167,17 +173,20 @@ void loop()
     if (!GPS.parse(GPS.lastNMEA()))   // this also sets the newNMEAreceived() flag to false
       return;  // we can fail to parse a sentence in which case we should just wait for another
   }
-  
+
   currentMillis = millis();
    
+     
   if(currentMillis - previousMillis200 >= 100) { //Perform this every 100 milliseconds
     previousMillis200 = currentMillis;   
-    
+     
      // Send a "A" command to the HMC6352
       // This requests the current heading data
-      Wire.beginTransmission(compassAddress);
+       Wire.beginTransmission(compassAddress);
       Wire.write("A");              // The "Get Data" command
       Wire.endTransmission();
+      
+      
       delay(2);                   // The HMC6352 needs at least a 70us (microsecond) delay
       // after this command.  Using 10ms just makes it safe
       // Read the 2 heading bytes, MSB first
@@ -190,8 +199,15 @@ void loop()
         headingData[i] = Wire.read();
         i++;
       }
-      headingValue = headingData[0]*256 + headingData[1];  // Put the MSB and LSB together
-      CAN0.sendMsgBuf(0x43c, 0, 2, headingData );
+      headingValue = int(headingData[0])*256 + int(headingData[1]);  // Put the MSB and LSB together
+      
+      if (headingValue >3600) headingValue -= 3600;
+      if (headingValue <0) headingValue += 3600;
+      
+      headingValueArray[0]=highByte(headingValue);
+      headingValueArray[1]=lowByte(headingValue);
+      
+      CAN0.sendMsgBuf(0x43c, 0, 2, headingValueArray );
     
       
 
@@ -203,8 +219,8 @@ void loop()
     lon = convertDegMinToDecDeg(GPS.longitude);
     lat = convertDegMinToDecDeg(GPS.latitude);
   
-     data[0] = headingData[0];
-     data[1] = headingData[1]; 
+     data[0] = highByte(headingValue);
+     data[1] = lowByte(headingValue); 
      data[2] = highByte(int(GPS.speed)); 
      data[3] = lowByte(int(GPS.speed)); 
      data[4] = highByte(int(GPS.angle)); 
@@ -257,7 +273,7 @@ void loop()
     Serial.print("\t");
     Serial.print(int (headingValue / 10));     // The whole number part of the heading
     Serial.print(".");
-    Serial.print(int (headingValue % 10));     // The fractional part of the heading
+    Serial.print(abs(int (headingValue % 10)));     // The fractional part of the heading
     Serial.print("\t");
     Serial.print(GPS.speed);
     Serial.print("\t");
@@ -304,14 +320,16 @@ void loop()
     
      data[0] = highByte(int(headerValue)); 
      data[1] = lowByte(int(headerValue)); 
-     data[2] = highByte(int(dist)); 
-     data[3] = lowByte(int(dist)); 
+     data[2] = highByte(int(dist*10)); 
+     data[3] = lowByte(int(dist*10)); 
      data[4] = byte(GPS.hour); 
      data[5] = byte(GPS.minute); 
      data[6] = byte(GPS.seconds); 
      data[7] = byte(GPS.milliseconds/10); 
+   
+     CAN0.sendMsgBuf(0x441, 0, 8,  data );
                    
-    CAN0.sendMsgBuf(0x440, 0, 8,  data );
+
   }
  
 }
@@ -355,19 +373,20 @@ double  distance(double x2lon, double x2lat ){
 }
 
 int dirToFixedPoint (double x2lon, double x2lat ){
- double flat1=lat;     // flat1 = our current latitude. lat is from the gps data. 
- double flon1=lon;  // flon1 = our current longitude. lon is from the fps data.
- flat1=radians(flat1);    //convert current latitude to radians
- x2lat=radians(x2lat);  //convert waypoint latitude to radians
- diflon=radians((x2lon)-(flon1));   //subtract and convert longitudes to radians
- flon1 = radians(flon1);  //also must be done in radians
- x2lon = radians(x2lon);  //radians duh.
- double head = atan2(sin(x2lon-flon1)*cos(x2lat),cos(flat1)*sin(x2lat)-sin(flat1)*cos(x2lat)*cos(x2lon-flon1)); //,2*3.1415926535;
- head = head*1800/3.1415926535;  // convert from radians to tenths of degrees
+   double flat1=lat;     // flat1 = our current latitude. lat is from the gps data. 
+   double flon1=lon;  // flon1 = our current longitude. lon is from the fps data.
+   flat1=radians(flat1);    //convert current latitude to radians
+   x2lat=radians(x2lat);  //convert waypoint latitude to radians
+   diflon=radians((x2lon)-(flon1));   //subtract and convert longitudes to radians
+   flon1 = radians(flon1);  //also must be done in radians
+   x2lon = radians(x2lon);  //radians duh.
+   double head = atan2(sin(x2lon-flon1)*cos(x2lat),cos(flat1)*sin(x2lat)-sin(flat1)*cos(x2lat)*cos(x2lon-flon1))+2*3.1415926535;
+   head = head*1800/3.1415926535;  // convert from radians to tenths of degrees
 
-  int header =head; //make it a integer now
+  int header =int(head); //make it a integer now
 
   if(header<0) header += 3600;   //if the heading is negative then add 360 to make it positive
+  if(header>3600) header -= 3600;   //if the heading is big then subtract 360 to make it positive
   return header;
 }
  
