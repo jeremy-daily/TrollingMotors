@@ -1,8 +1,8 @@
+#include <Wire.h>
     
 #include <SPI.h>
 #include <mcp_can.h>
 #include <mcp_can_dfs.h>
-#include <Wire.h>
 //required for fmod()
 #include <math.h>;
 
@@ -98,10 +98,8 @@ void setup()
     Serial.print("Time");
     Serial.print("\t");
     Serial.print("Year");
-    Serial.print(GPS.hour, DEC); Serial.print(':');
-    Serial.print(GPS.minute, DEC); Serial.print(':');
-    Serial.print(GPS.seconds, DEC); Serial.print('.');
-    Serial.print(GPS.milliseconds);
+    Serial.print("\t");
+    Serial.print("Time");
     Serial.print("\t");
     Serial.print("Fixed Lon");
     Serial.print("\t");
@@ -179,7 +177,7 @@ void loop()
      
   if(currentMillis - previousMillis200 >= 100) { //Perform this every 100 milliseconds
     previousMillis200 = currentMillis;   
-     
+   
      // Send a "A" command to the HMC6352
       // This requests the current heading data
        Wire.beginTransmission(compassAddress);
@@ -201,15 +199,13 @@ void loop()
       }
       headingValue = int(headingData[0])*256 + int(headingData[1]);  // Put the MSB and LSB together
       
-      if (headingValue >3600) headingValue -= 3600;
-      if (headingValue <0) headingValue += 3600;
+//      if (headingValue >3600) headingValue -= 3600;
+//      if (headingValue <0) headingValue += 3600;
+//      
+//     data[0] = highByte(headingValue);
+//     data[1] = lowByte(headingValue); 
       
-      headingValueArray[0]=highByte(headingValue);
-      headingValueArray[1]=lowByte(headingValue);
-      
-      CAN0.sendMsgBuf(0x43c, 0, 2, headingValueArray );
-    
-      
+      CAN0.sendMsgBuf(0x43c, 0, 2, headingData );
 
   }
   currentMillis = millis();
