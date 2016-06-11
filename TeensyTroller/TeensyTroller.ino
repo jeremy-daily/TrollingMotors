@@ -71,7 +71,7 @@ void setup() {
   bno.begin();
   bno.setExtCrystalUse(true);
   
-  tft.println("Starting Compass");
+  tft.print("Starting Comp");
   compass.init();
   delay(1000);
   
@@ -120,13 +120,17 @@ void displayData(){
     
     tft.setCursor(0,30);
     tft.print("Heading: ");
-    tft.fillRect(150, 30, 200, 60, ILI9341_BLACK);
+    int xStart = 150;
+    int yLine = 1;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(150,30);
     tft.print(int(compass.heading/10));
 
     tft.setCursor(0,60);
     tft.print("Pitch: ");
-    tft.fillRect(150, 60, 200, 90, ILI9341_BLACK);
+    xStart = 150;
+    yLine = 2;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(150,60);
     //tft.print(int16_t(compass.pitch/10.0),DEC);
     int pitch = compass.pitch;
@@ -135,7 +139,9 @@ void displayData(){
 
     tft.setCursor(0,90);
     tft.print("Roll: ");
-    tft.fillRect(150, 90, 200, 120, ILI9341_BLACK);
+    xStart = 150;
+    yLine = 3;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(150,90);
     int roll = compass.roll;
     if (roll > 32768) roll = roll - 65536;
@@ -146,14 +152,18 @@ void displayData(){
     
     tft.setCursor(0,150);
     tft.print("Yaw: ");
-    tft.fillRect(110, 150, 200, 180, ILI9341_BLACK);
+    xStart = 110;
+    yLine = 5;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(110,150);
     float yawIMU = euler.x();
     tft.print(yawIMU);
     
     tft.setCursor(0,180);
     tft.print("Pitch: ");
-    tft.fillRect(110, 180, 200, 210, ILI9341_BLACK);
+    xStart = 110;
+    yLine = 6;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(110,180);
     float pitchIMU = euler.z();
     tft.print(pitchIMU);
@@ -161,17 +171,30 @@ void displayData(){
     
     tft.setCursor(0,210);
     tft.print("Roll: ");
-    tft.fillRect(110, 210, 200, 240, ILI9341_BLACK);
+    xStart = 110;
+    yLine = 7;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(110,210);
     float rollIMU = euler.y();
     tft.print(rollIMU);
 
     tft.setCursor(0,240);
     tft.print("Rate:");
-    tft.fillRect(140, 240, 200, 270, ILI9341_BLACK);
-    tft.setCursor(140,240);
+    xStart = 130;
+    yLine = 8;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
+    tft.setCursor(xStart,240);
     float yawRate = gyro.z();
     tft.print(yawRate);
+
+    tft.fillRect(0, 270, 240, 5, ILI9341_WHITE);
+    tft.setCursor(0,280);
+    tft.print("Sats:");
+    xStart = 90;
+    yLine = 2;
+    tft.fillRect(280, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
+    tft.setCursor(xStart,280);
+    tft.print(gps.satellites());
   }
 }
 
