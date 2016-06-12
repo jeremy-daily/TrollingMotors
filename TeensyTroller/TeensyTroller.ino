@@ -21,8 +21,22 @@ elapsedMillis waitingForCAN;
 
 elapsedMillis printTFTtimer;
 
+int mode = 0; 
+int numberOfModes = 6; //This limits the number of displayed modes.
+char modeNames[6][6]={"Off ","Man. ","Turn ","Fix ","Fig8 ", "Full"};
+
+boolean rightButtonState = LOW;
+boolean leftButtonState = LOW;
+boolean downButtonState = LOW;
+boolean pushButtonState = LOW;
+boolean upButtonState = LOW;
 
 TinyGPS gps;
+
+long lat, lon;
+unsigned long fix_age, time, date, speed, course;
+unsigned long chars;
+unsigned short sentences, failed_checksum;
 
 // For the Adafruit shield, these are the default.
 #define TFT_DC 20
@@ -80,18 +94,24 @@ void setup() {
 
 void sendCANmessages(){
   //GPS Messages
-  
-  if (gps.satellites() > 3 ){
-    txmsg.id=301;
+  gps.get_position(&lat, &lon, &fix_age);
+  gps.stats(&chars, &sentences, &failed_checksum);
+
+  if (fix_age == TinyGPS::GPS_INVALID_AGE)
+    Serial.println("No fix detected");
+  else if (fix_age > 5000)
+    Serial.println("Warning: possible stale data!");
+  else {
+    txmsg.id=0x43e;
     txmsg.len=8;
-    txmsg.buf[0]=byte(gps.satellites());
-    txmsg.buf[1]=byte(gps.satellites());
-    txmsg.buf[2]=byte(gps.satellites());
-    txmsg.buf[3]=byte(gps.satellites());
-    txmsg.buf[4]=byte(gps.satellites());
-    txmsg.buf[5]=byte(gps.satellites());
+    txmsg.buf[0]=highByte(sentences);
+    txmsg.buf[1]=lowByte(sentences);
+    txmsg.buf[2]=highByte(gps.speed());
+    txmsg.buf[3]=lowByte(gps.speed());
+    txmsg.buf[4]=highByte(gps.course());
+    txmsg.buf[5]=lowByte(gps.course());
     txmsg.buf[6]=byte(gps.satellites());
-    txmsg.buf[7]=byte(gps.satellites());
+    txmsg.buf[7]=byte(fix_age);
     CANbus.write(txmsg);
     CANTXcount++;
   }
@@ -104,15 +124,21 @@ void readCANmessages(){
       waitingForCAN = 0; //reset the can message timeout
       CANRXcount++;
       ID = rxmsg.id;
-      if (ID == 0x123)
+      if (ID == 0x777)
       {
-        
+        mode=rxmsg.buf[0];
+        upButtonState=bitRead(rxmsg.buf[1],0);
+        downButtonState=bitRead(rxmsg.buf[1],1);
+        leftButtonState=bitRead(rxmsg.buf[1],2);
+        rightButtonState=bitRead(rxmsg.buf[1],3);
+        pushButtonState=bitRead(rxmsg.buf[1],4);
+//        modeEnable=bitRead(rxmsg.buf[1],7);
       }
   }
 }
 
 void displayData(){
-  if (printTFTtimer > 200){
+  if (printTFTtimer > 50){
     printTFTtimer = 0;
     //tft.fillScreen(ILI9341_BLACK);
     tft.setCursor(70,0);
@@ -187,14 +213,20 @@ void displayData(){
     float yawRate = gyro.z();
     tft.print(yawRate);
 
-    tft.fillRect(0, 270, 240, 5, ILI9341_WHITE);
-    tft.setCursor(0,280);
-    tft.print("Sats:");
-    xStart = 90;
-    yLine = 2;
-    tft.fillRect(280, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
-    tft.setCursor(xStart,280);
-    tft.print(gps.satellites());
+    if (pushButtonState) tft.fillRect(0, 270, 240, 5, ILI9341_WHITE);
+    else tft.fillRect(0, 270, 240, 5, ILI9341_BLACK);
+
+    
+    
+    if (downButtonState) tft.fillRect(0, 280, 240, 30, ILI9341_WHITE);
+    else
+    {
+      tft.fillRect(0, 280, 240, 30, ILI9341_BLACK);
+      tft.setCursor(0,280);
+      tft.print("Sats:");
+      tft.setCursor(90,280);
+      tft.print(gps.satellites());
+    }
   }
 }
 
@@ -218,6 +250,7 @@ void loop() {
   readCANmessages();
   while (Serial1.available())
     gps.encode(Serial1.read());
+ 
     
 }
 
