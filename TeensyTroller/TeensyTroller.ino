@@ -138,7 +138,7 @@ void readCANmessages(){
 }
 
 void displayData(){
-  if (printTFTtimer > 50){
+  if (printTFTtimer > 250){
     printTFTtimer = 0;
     //tft.fillScreen(ILI9341_BLACK);
     tft.setCursor(70,0);
