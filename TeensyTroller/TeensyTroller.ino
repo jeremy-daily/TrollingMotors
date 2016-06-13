@@ -21,8 +21,22 @@ elapsedMillis waitingForCAN;
 
 elapsedMillis printTFTtimer;
 
+int mode = 0; 
+int numberOfModes = 6; //This limits the number of displayed modes.
+char modeNames[6][6]={"Off ","Man. ","Turn ","Fix ","Fig8 ", "Full"};
+
+boolean rightButtonState = LOW;
+boolean leftButtonState = LOW;
+boolean downButtonState = LOW;
+boolean pushButtonState = LOW;
+boolean upButtonState = LOW;
 
 TinyGPS gps;
+
+long lat, lon;
+unsigned long fix_age, time, date, speed, course;
+unsigned long chars;
+unsigned short sentences, failed_checksum;
 
 // For the Adafruit shield, these are the default.
 #define TFT_DC 20
@@ -71,7 +85,7 @@ void setup() {
   bno.begin();
   bno.setExtCrystalUse(true);
   
-  tft.println("Starting Compass");
+  tft.print("Starting Comp");
   compass.init();
   delay(1000);
   
@@ -80,18 +94,24 @@ void setup() {
 
 void sendCANmessages(){
   //GPS Messages
-  
-  if (gps.satellites() > 3 ){
-    txmsg.id=301;
+  gps.get_position(&lat, &lon, &fix_age);
+  gps.stats(&chars, &sentences, &failed_checksum);
+
+  if (fix_age == TinyGPS::GPS_INVALID_AGE)
+    Serial.println("No fix detected");
+  else if (fix_age > 5000)
+    Serial.println("Warning: possible stale data!");
+  else {
+    txmsg.id=0x43e;
     txmsg.len=8;
-    txmsg.buf[0]=byte(gps.satellites());
-    txmsg.buf[1]=byte(gps.satellites());
-    txmsg.buf[2]=byte(gps.satellites());
-    txmsg.buf[3]=byte(gps.satellites());
-    txmsg.buf[4]=byte(gps.satellites());
-    txmsg.buf[5]=byte(gps.satellites());
+    txmsg.buf[0]=highByte(sentences);
+    txmsg.buf[1]=lowByte(sentences);
+    txmsg.buf[2]=highByte(gps.speed());
+    txmsg.buf[3]=lowByte(gps.speed());
+    txmsg.buf[4]=highByte(gps.course());
+    txmsg.buf[5]=lowByte(gps.course());
     txmsg.buf[6]=byte(gps.satellites());
-    txmsg.buf[7]=byte(gps.satellites());
+    txmsg.buf[7]=byte(fix_age);
     CANbus.write(txmsg);
     CANTXcount++;
   }
@@ -104,15 +124,21 @@ void readCANmessages(){
       waitingForCAN = 0; //reset the can message timeout
       CANRXcount++;
       ID = rxmsg.id;
-      if (ID == 0x123)
+      if (ID == 0x777)
       {
-        
+        mode=rxmsg.buf[0];
+        upButtonState=bitRead(rxmsg.buf[1],0);
+        downButtonState=bitRead(rxmsg.buf[1],1);
+        leftButtonState=bitRead(rxmsg.buf[1],2);
+        rightButtonState=bitRead(rxmsg.buf[1],3);
+        pushButtonState=bitRead(rxmsg.buf[1],4);
+//        modeEnable=bitRead(rxmsg.buf[1],7);
       }
   }
 }
 
 void displayData(){
-  if (printTFTtimer > 200){
+  if (printTFTtimer > 250){
     printTFTtimer = 0;
     //tft.fillScreen(ILI9341_BLACK);
     tft.setCursor(70,0);
@@ -120,13 +146,17 @@ void displayData(){
     
     tft.setCursor(0,30);
     tft.print("Heading: ");
-    tft.fillRect(150, 30, 200, 60, ILI9341_BLACK);
+    int xStart = 150;
+    int yLine = 1;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(150,30);
     tft.print(int(compass.heading/10));
 
     tft.setCursor(0,60);
     tft.print("Pitch: ");
-    tft.fillRect(150, 60, 200, 90, ILI9341_BLACK);
+    xStart = 150;
+    yLine = 2;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(150,60);
     //tft.print(int16_t(compass.pitch/10.0),DEC);
     int pitch = compass.pitch;
@@ -135,7 +165,9 @@ void displayData(){
 
     tft.setCursor(0,90);
     tft.print("Roll: ");
-    tft.fillRect(150, 90, 200, 120, ILI9341_BLACK);
+    xStart = 150;
+    yLine = 3;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(150,90);
     int roll = compass.roll;
     if (roll > 32768) roll = roll - 65536;
@@ -146,14 +178,18 @@ void displayData(){
     
     tft.setCursor(0,150);
     tft.print("Yaw: ");
-    tft.fillRect(110, 150, 200, 180, ILI9341_BLACK);
+    xStart = 110;
+    yLine = 5;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(110,150);
     float yawIMU = euler.x();
     tft.print(yawIMU);
     
     tft.setCursor(0,180);
     tft.print("Pitch: ");
-    tft.fillRect(110, 180, 200, 210, ILI9341_BLACK);
+    xStart = 110;
+    yLine = 6;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(110,180);
     float pitchIMU = euler.z();
     tft.print(pitchIMU);
@@ -161,17 +197,36 @@ void displayData(){
     
     tft.setCursor(0,210);
     tft.print("Roll: ");
-    tft.fillRect(110, 210, 200, 240, ILI9341_BLACK);
+    xStart = 110;
+    yLine = 7;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(110,210);
     float rollIMU = euler.y();
     tft.print(rollIMU);
 
     tft.setCursor(0,240);
     tft.print("Rate:");
-    tft.fillRect(140, 240, 200, 270, ILI9341_BLACK);
-    tft.setCursor(140,240);
+    xStart = 130;
+    yLine = 8;
+    tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
+    tft.setCursor(xStart,240);
     float yawRate = gyro.z();
     tft.print(yawRate);
+
+    if (pushButtonState) tft.fillRect(0, 270, 240, 5, ILI9341_WHITE);
+    else tft.fillRect(0, 270, 240, 5, ILI9341_BLACK);
+
+    
+    
+    if (downButtonState) tft.fillRect(0, 280, 240, 30, ILI9341_WHITE);
+    else
+    {
+      tft.fillRect(0, 280, 240, 30, ILI9341_BLACK);
+      tft.setCursor(0,280);
+      tft.print("Sats:");
+      tft.setCursor(90,280);
+      tft.print(gps.satellites());
+    }
   }
 }
 
@@ -195,6 +250,7 @@ void loop() {
   readCANmessages();
   while (Serial1.available())
     gps.encode(Serial1.read());
+ 
     
 }
 
