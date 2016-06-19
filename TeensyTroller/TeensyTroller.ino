@@ -13,16 +13,16 @@
 #include <utility/imumaths.h>
 #include <Servo.h> 
 
-Adafruit_BNO055 bno = Adafruit_BNO055();
 
-IntervalTimer broadcastCANtimer;
-elapsedMillis waitingForCAN;
+IntervalTimer calculateMotorOutputTimer; // this is interrupt based
 
+elapsedMillis broadcastCANtimer; //set up intervals 
+elapsedMillis waitingForCANtimer;
 elapsedMillis printTFTtimer;
 
-int mode = 0; 
-int numberOfModes = 6; //This limits the number of displayed modes.
-char modeNames[6][6]={"Off ","Man. ","Turn ","Fix ","Fig8 ", "Full"};
+byte mode = 0; 
+byte numberOfModes = 7; //This limits the number of displayed modes.
+char modeNames[7][6]={" Off ","Man. ","TurnL","TurnR","Fix  ","Fig8 ", "Tune "}; // This array is the length of the number of m
 
 boolean rightButtonState = LOW;
 boolean leftButtonState = LOW;
@@ -30,17 +30,18 @@ boolean downButtonState = LOW;
 boolean pushButtonState = LOW;
 boolean upButtonState = LOW;
 
+//Initialize the GPS
 TinyGPS gps;
-
+//Declare variables used by the GPS
 long lat, lon;
 unsigned long fix_age, time, date, speed, course;
 unsigned long chars;
 unsigned short sentences, failed_checksum;
 
-// For the Adafruit shield, these are the default.
+// Setup the TFT display.
 #define TFT_DC 20
 #define TFT_CS 21
-
+// initialize the display
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC);
 
 SFE_HMC6343 compass; // Declare the sensor object
@@ -51,25 +52,28 @@ Servo leftServo;  // create servo object to control a servo
 int rightVal;    // variable to read the value from the analog pin 
 int leftVal;    // variable to read the value from the analog pin 
 
+//Set up CAN messaging
 FlexCAN CANbus(500000);
 static CAN_message_t txmsg,rxmsg;
 uint32_t CANTXcount = 0;
 uint32_t CANRXcount = 0;
-
 uint32_t ID = 0;
+char message[9] ="        "; //initialize with spaces
+//char *msgPtr = "        "; //initialize with spaces;
 
+// setup the IMU sensor
+Adafruit_BNO055 bno = Adafruit_BNO055();
 imu::Vector<3> euler;
 imu::Vector<3> gyro;
 
 void setup() {
-  delay(100);
-  Serial.begin(115200);
-  delay(100);
+  Serial.begin(115200); //debug console
+  
   tft.begin();
   tft.fillScreen(ILI9341_BLACK);
   tft.setTextColor(ILI9341_YELLOW);
   tft.setTextSize(3);
-  tft.println("Setting Up...");
+  tft.print("Setting Up...");
   
   tft.print("Starting Srvo");
   rightServo.attach(23);  // attaches the servo on pin 23 to the servo object 
@@ -78,16 +82,45 @@ void setup() {
   tft.println("Starting CAN");
   delay(100);
   CANbus.begin();
-  broadcastCANtimer.begin(sendCANmessages, 100000); //call the sendCANmessages every 0.100 seconds
+  
+  //broadcastCANtimer.begin(sendCANmessages, 100000); //call the sendCANmessages every 0.100 seconds
 
-  char message1_1[9]= "Fishing ";
-  txmsg.id=0x211;
+  for (int i = 0;i<10;i++){
+  strncpy(message,"Fishing ",8);
+  txmsg.id=0x211; //Send to the upper left
   txmsg.len=8;
-  for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message1_1[j];
+  for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
   CANbus.write(txmsg);
+  delay(50);
+  
+  strncpy(message,"is great",8);
+  txmsg.id=0x212; //sent to the upper right
+  txmsg.len=8;
+  for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+  delay(50);
+  
+  strncpy(message,"today. H",8);
+  txmsg.id=0x221; //sent to the lower left
+  txmsg.len=8;
+  for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+  delay(50);
+    
+  strncpy(message,"ave fun.",8);
+  txmsg.id=0x222; //sent to the lower right
+  txmsg.len=8;
+  for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+  delay(50);
+  }
+   
+  tft.print("CAN msgs sent");
   
   tft.println("Starting GPS");
   Serial1.begin(9600);
+ 
+  
   tft.println("Starting IMU");
    /* Initialise the sensor */
   bno.begin();
@@ -129,7 +162,7 @@ void sendCANmessages(){
 
 void readCANmessages(){
   while ( CANbus.read(rxmsg) ) {
-      waitingForCAN = 0; //reset the can message timeout
+      waitingForCANtimer = 0; //reset the can message timeout
       CANRXcount++;
       ID = rxmsg.id;
       if (ID == 0x777)

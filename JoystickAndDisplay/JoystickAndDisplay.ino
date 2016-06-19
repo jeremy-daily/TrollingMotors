@@ -76,8 +76,12 @@ const long tripleClickThreshold = 350;
 
 void setup() {
 
-  pinMode(2, INPUT); //Monitor for CAN messages
+  pinMode(2, INPUT_PULLUP); //Monitor for CAN messages
+  pinMode(3, INPUT_PULLUP); //Monitor for CAN messages
 
+  attachInterrupt(digitalPinToInterrupt(2), readCANbus, FALLING);
+  attachInterrupt(digitalPinToInterrupt(3), readCANbus, FALLING);
+  
   Serial.begin(115200);
   Serial.println("It's time to go fishing with the Dailys!!");
 
@@ -85,6 +89,11 @@ void setup() {
   Serial.println("Setting up CAN0..."); //J1939
   if(CAN0.begin(CAN_500KBPS) == CAN_OK) Serial.println("CAN0 init ok!!");
   else Serial.println("CAN0 init fail!!");
+
+  CAN0.init_Filt(0,1,0x211);
+  CAN0.init_Filt(0,1,0x212);
+  CAN0.init_Filt(0,1,0x221);
+  CAN0.init_Filt(0,1,0x222);
 
   // make the pushbutton's pin an input:
   pinMode(rightButton, INPUT);
@@ -116,7 +125,8 @@ void setup() {
 
 // the loop routine runs over and over again forever:
 void loop() {
-  readCANbus();
+  //readCANbus();
+  
 
   //Button Debouncing*********************************************************************************    
   // read the input pin:
@@ -212,38 +222,60 @@ void sendJoyStick(){
 /***********************************************************************************************/
 /***********************************************************************************************/
 
+
+/***********************************************************************************************/
+/***********************************************************************************************/
+
 void readCANbus(){
-  CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
-  rxId = CAN0.getCanId();                    // Get message ID
-  if (rxId == 0x210){ //Mode Message
-    numberOfModes = rxBuf[0];
-    if (rxBuf[1] <= numberOfModes) mode = rxBuf[1];
-  }
-  else if (rxId == 0x211){ //Display Characters on first quarter of screen
-    dispSerial.write(254); //escape character
-    dispSerial.write(128); //Move Cursor
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
-  }
-  else if (rxId == 0x212){
-    dispSerial.write(254); //escape character
-    dispSerial.write(136); //Move 
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
-      
-  }
-  else if (rxId == 0x221){
-    dispSerial.write(254); //escape character
-    dispSerial.write(192); //Move 
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
-  }
-  else if (rxId == 0x222){
-    dispSerial.write(254); //escape character
-    dispSerial.write(200); //Move 
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
-  }
-  
+  //while(CAN0.checkReceive()){
+    CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
+    rxId = CAN0.getCanId();   
+    // Get message ID
+//    Serial.print(rxId, HEX);
+//    for (int i = 0;i<len;i++){
+//      
+//      char hexChars[5];
+//      sprintf(hexChars,", %02X",rxBuf[i]);
+//      Serial.print(hexChars);
+//    }
+//    Serial.println();
+     
+    if (rxId == 0x210){ //Mode Message
+      numberOfModes = rxBuf[0];
+      if (rxBuf[1] <= numberOfModes) mode = rxBuf[1];
+    }
+    else if (rxId == 0x211){ //Display Characters on first quarter of screen
+      dispSerial.write(254); //escape character
+      dispSerial.write(128); //Move Cursor
+      char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str11);
+      //Serial.println(str11);
+    }
+    else if (rxId == 0x212){
+      dispSerial.write(254); //escape character
+      dispSerial.write(136); //Move 
+      char str12[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str12);
+      //Serial.println(str12);
+        
+    }
+    else if (rxId == 0x221){
+      dispSerial.write(254); //escape character
+      dispSerial.write(192); //Move 
+      char str21[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str21);
+      //Serial.println(str21);
+    }
+    else if (rxId == 0x222){
+      dispSerial.write(254); //escape character
+      dispSerial.write(200); //Move 
+      char str22[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str22);
+      //Serial.println(str22);
+    }
+    else {
+     rxId = 0;
+    }
+  //}
 }
 
