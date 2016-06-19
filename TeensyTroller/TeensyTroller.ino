@@ -14,7 +14,6 @@
 #include <Servo.h> 
 
 Adafruit_BNO055 bno = Adafruit_BNO055();
-SFE_HMC6343 compass; // Declare the sensor object
 
 IntervalTimer broadcastCANtimer;
 elapsedMillis waitingForCAN;
@@ -43,6 +42,8 @@ unsigned short sentences, failed_checksum;
 #define TFT_CS 21
 
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC);
+
+SFE_HMC6343 compass; // Declare the sensor object
 
 Servo rightServo;  // create servo object to control a servo 
 Servo leftServo;  // create servo object to control a servo 
@@ -78,6 +79,13 @@ void setup() {
   delay(100);
   CANbus.begin();
   broadcastCANtimer.begin(sendCANmessages, 100000); //call the sendCANmessages every 0.100 seconds
+
+  char message1_1[9]= "Fishing ";
+  txmsg.id=0x211;
+  txmsg.len=8;
+  for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message1_1[j];
+  CANbus.write(txmsg);
+  
   tft.println("Starting GPS");
   Serial1.begin(9600);
   tft.println("Starting IMU");
