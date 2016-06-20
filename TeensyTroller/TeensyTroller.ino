@@ -1,6 +1,6 @@
 #include <SFE_HMC6343.h>
 
-#include <TinyGPS.h>
+#include <TinyGPS++.h>
 
 #include <FlexCAN.h>
 #include <kinetis_flexcan.h>
@@ -19,6 +19,14 @@ IntervalTimer calculateMotorOutputTimer; // this is interrupt based
 elapsedMillis broadcastCANtimer; //set up intervals 
 elapsedMillis waitingForCANtimer;
 elapsedMillis printTFTtimer;
+elapsedMillis debugSerialtimer;
+elapsedMillis mode0displaytimer;
+elapsedMillis mode1displaytimer;
+elapsedMillis mode2displaytimer;
+elapsedMillis mode3displaytimer;
+elapsedMillis mode4displaytimer;
+elapsedMillis mode5displaytimer;
+elapsedMillis mode6displaytimer;
 
 byte mode = 0; 
 byte numberOfModes = 7; //This limits the number of displayed modes.
@@ -30,13 +38,24 @@ boolean downButtonState = LOW;
 boolean pushButtonState = LOW;
 boolean upButtonState = LOW;
 
+
+double fixPointLat = 48.85826;
+double fixPointLon = 2.294516;
+double distanceToFixPoint = 0;
+double courseToFixPoint = 0;
+double speedGoal=0;
+double coarseGoal=0;
+
+
+ 
 //Initialize the GPS
-TinyGPS gps;
-//Declare variables used by the GPS
-long lat, lon;
-unsigned long fix_age, time, date, speed, course;
-unsigned long chars;
-unsigned short sentences, failed_checksum;
+TinyGPSPlus gps;
+////Declare variables used by the GPS
+//long lat, lon;
+//unsigned long fix_age, time, date, speed, course;
+//unsigned long chars;
+//unsigned short sentences, failed_checksum;
+//double flat, flon;
 
 // Setup the TFT display.
 #define TFT_DC 20
@@ -59,12 +78,15 @@ uint32_t CANTXcount = 0;
 uint32_t CANRXcount = 0;
 uint32_t ID = 0;
 char message[9] ="        "; //initialize with spaces
-//char *msgPtr = "        "; //initialize with spaces;
 
 // setup the IMU sensor
 Adafruit_BNO055 bno = Adafruit_BNO055();
 imu::Vector<3> euler;
 imu::Vector<3> gyro;
+
+float yawAngle = 0.0;
+float yawRate = 0.0;
+float compassHeading = 0.0;
 
 void setup() {
   Serial.begin(115200); //debug console
@@ -79,13 +101,26 @@ void setup() {
   rightServo.attach(23);  // attaches the servo on pin 23 to the servo object 
   leftServo.attach(16);  // attaches the servo on pin 16 to the servo object 
   
-  tft.println("Starting CAN");
+  
+  tft.println("Starting GPS");
+  Serial1.begin(9600);
+ 
+  
+  tft.println("Starting IMU");
+   /* Initialise the sensor */
+  bno.begin();
+  bno.setExtCrystalUse(true);
+  
+  tft.print("Starting Comp");
+  compass.init();
+
+   tft.println("Starting CAN");
   delay(100);
   CANbus.begin();
   
-  //broadcastCANtimer.begin(sendCANmessages, 100000); //call the sendCANmessages every 0.100 seconds
+  calculateMotorOutputTimer.begin(calculateMotorOutput, 50000); //call the sendCANmessages every 0.05 seconds
 
-  for (int i = 0;i<10;i++){
+  
   strncpy(message,"Fishing ",8);
   txmsg.id=0x211; //Send to the upper left
   txmsg.len=8;
@@ -113,48 +148,37 @@ void setup() {
   for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
   CANbus.write(txmsg);
   delay(50);
-  }
+  
    
   tft.print("CAN msgs sent");
-  
-  tft.println("Starting GPS");
-  Serial1.begin(9600);
+
  
-  
-  tft.println("Starting IMU");
-   /* Initialise the sensor */
-  bno.begin();
-  bno.setExtCrystalUse(true);
-  
-  tft.print("Starting Comp");
-  compass.init();
   delay(1000);
   
   tft.fillScreen(ILI9341_BLACK);
 } 
 
 void sendCANmessages(){
-  //GPS Messages
-  gps.get_position(&lat, &lon, &fix_age);
-  gps.stats(&chars, &sentences, &failed_checksum);
-
-  if (fix_age == TinyGPS::GPS_INVALID_AGE)
-    Serial.println("No fix detected");
-  else if (fix_age > 5000)
-    Serial.println("Warning: possible stale data!");
-  else {
-    txmsg.id=0x43e;
-    txmsg.len=8;
-    txmsg.buf[0]=highByte(sentences);
-    txmsg.buf[1]=lowByte(sentences);
-    txmsg.buf[2]=highByte(gps.speed());
-    txmsg.buf[3]=lowByte(gps.speed());
-    txmsg.buf[4]=highByte(gps.course());
-    txmsg.buf[5]=lowByte(gps.course());
-    txmsg.buf[6]=byte(gps.satellites());
-    txmsg.buf[7]=byte(fix_age);
-    CANbus.write(txmsg);
-    CANTXcount++;
+  if (broadcastCANtimer >= 100) {
+    broadcastCANtimer = 0;
+  
+    //GPS Messages
+    if (gps.location.isUpdated() ){
+      txmsg.id=0x43e;
+      txmsg.len=8;
+      
+      txmsg.buf[0]=byte( (gps.speed.value() & 0xFF000000) >> 24);
+      txmsg.buf[1]=byte( (gps.speed.value() & 0x00FF0000) >> 16);
+      txmsg.buf[2]=byte( (gps.speed.value() & 0x0000FF00) >>  8);
+      txmsg.buf[3]=byte( (gps.speed.value() & 0x000000FF) >>  0);
+      txmsg.buf[4]=byte( (gps.course.value() & 0xFF000000) >> 24);
+      txmsg.buf[5]=byte( (gps.course.value() & 0x00FF0000) >> 16);
+      txmsg.buf[6]=byte( (gps.course.value() & 0x0000FF00) >>  8);
+      txmsg.buf[7]=byte( (gps.course.value() & 0x000000FF) >>  0);
+      
+      CANbus.write(txmsg);
+      CANTXcount++;
+    }
   }
 }
   
@@ -223,8 +247,8 @@ void displayData(){
     yLine = 5;
     tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(110,150);
-    float yawIMU = euler.x();
-    tft.print(yawIMU);
+    
+    tft.print(yawAngle);
     
     tft.setCursor(0,180);
     tft.print("Pitch: ");
@@ -251,7 +275,6 @@ void displayData(){
     yLine = 8;
     tft.fillRect(xStart, 30*yLine, 240-xStart, 30, ILI9341_BLACK);
     tft.setCursor(xStart,240);
-    float yawRate = gyro.z();
     tft.print(yawRate);
 
     if (pushButtonState) tft.fillRect(0, 270, 240, 5, ILI9341_WHITE);
@@ -266,33 +289,136 @@ void displayData(){
       tft.setCursor(0,280);
       tft.print("Sats:");
       tft.setCursor(90,280);
-      tft.print(gps.satellites());
+      tft.print(gps.satellites.value());
     }
   }
 }
 
+void debugData(){
+  if (debugSerialtimer >= 200){
+    debugSerialtimer = 0;
+    Serial.print(mode);
+    Serial.print("\t");
+    Serial.print(speedGoal);
+    Serial.print("\t");
+    Serial.print(gps.speed.mph());
+    Serial.print("\t");
+    Serial.print(coarseGoal);
+    Serial.print("\t");
+    Serial.print(gps.course.deg());
+    Serial.print("\t");
+    Serial.print(compassHeading);
+    Serial.print("\t");
+    Serial.print(yawAngle);
+    Serial.print("\t");
+    Serial.print(yawRate,6);
+    Serial.print("\t");
+    Serial.print(gps.satellites.value());
+    Serial.print("\t");
+    Serial.print(gps.altitude.feet());
+    Serial.print("\t");
+    Serial.print(gps.location.lat(),8);
+    Serial.print("\t");
+    Serial.print(gps.location.lng(),8); 
+    Serial.print("\t");
+    Serial.print(fixPointLat,8);
+    Serial.print("\t");
+    Serial.print(fixPointLon,8);
+    Serial.print("\t");
+    Serial.print(distanceToFixPoint);
+    Serial.print("\t");
+    Serial.print(courseToFixPoint);
+    Serial.print("\t");
+    
+    Serial.println(CANTXcount);
+  }
+}
+
+
+void calculateMotorOutput(){
+  if (mode == 1){
+    rightVal = map(rightVal, 0, 1023, 0, 179);     // scale it to use it with the servo (value between 0 and 180) 
+  
+  }
+  else {
+    leftServo.write(90);
+    rightServo.write(90);
+  }
+  
+}
+
  
 void loop() {
-
-  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-  gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-  compass.readHeading();
-  displayData();
   
-  rightVal = 512;            // reads the value of the potentiometer (value between 0 and 1023) 
-  rightVal = map(rightVal, 0, 1023, 0, 179);     // scale it to use it with the servo (value between 0 and 180) 
-  rightServo.write(90);                  // sets the servo position according to the scaled value 
-
-
-  leftVal = 512;            // reads the value of the potentiometer (value between 0 and 1023) 
-  leftVal = map(leftVal, 0, 1023, 0, 179);     // scale it to use it with the servo (value between 0 and 180) 
-  leftServo.write(90);                  // sets the servo position according to the scaled value 
-  delay(15);
-  readCANmessages();
+  //measure stuff
+  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+  yawAngle = euler.x();
+  gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+  yawRate = gyro.z();
+  compass.readHeading();
+  compassHeading = compass.heading/10.0;
   while (Serial1.available())
-    gps.encode(Serial1.read());
+     gps.encode(Serial1.read());
+  
+  //send stuff
+  displayData();
+  debugData();
+  sendCANmessages();
+
+  
+  //get user input
+  readCANmessages();
+  if (upButtonState && pushButtonState){
+    delay(200);
+    if (upButtonState && pushButtonState) mode++;
+    
+  }
+  if (downButtonState && pushButtonState){
+    mode = 0;
+  }
+  
+  if (mode == 1){
+    displayMode1();
+    
+  }
+  else if (mode == 2){
+    distanceToFixPoint = gps.distanceBetween(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
+    courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
+    displayMode2();
  
+  }
     
 }
 
+void displayMode1(){
+  if (mode1displaytimer >= 200){
+    mode1displaytimer = 0;
+    sprintf(message,"Mode: %i ",mode);
+    txmsg.id=0x211; //sent to the lower right
+    txmsg.len=8;
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+  }
+}
+
+void displayMode2(){
+  if (mode2displaytimer >= 200){
+    mode1displaytimer = 0;
+    
+    strncpy(message,"Mode 2 S",8);
+    txmsg.id=0x211; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    sprintf(message,"ats: %i  ",int(gps.satellites.value()));
+    txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    
+  }
+}
 
