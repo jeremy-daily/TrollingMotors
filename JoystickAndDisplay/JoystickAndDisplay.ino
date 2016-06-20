@@ -13,14 +13,9 @@ SoftwareSerial dispSerial(8,9);
 // enable the CAN interface with the MCP2515 chip
 MCP_CAN CAN0(10); 
 
-char line1_1chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
-char line1_2chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
-char line2_1chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
-char line2_3chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
- 
 byte joyMessage[8];
 byte mode;
-byte numberOfModes = 2;
+byte numberOfModes = 6;
 
 //CAN interface messages (Borrowed from the example).
 long unsigned int rxId;
@@ -77,23 +72,27 @@ const long tripleClickThreshold = 350;
 void setup() {
 
   pinMode(2, INPUT_PULLUP); //Monitor for CAN messages
-  pinMode(3, INPUT_PULLUP); //Monitor for CAN messages
+  //pinMode(3, INPUT_PULLUP); //Monitor for CAN messages
 
-  attachInterrupt(digitalPinToInterrupt(2), readCANbus, FALLING);
-  attachInterrupt(digitalPinToInterrupt(3), readCANbus, FALLING);
+  //attachInterrupt(digitalPinToInterrupt(2), readCANbus, FALLING);
+  //attachInterrupt(digitalPinToInterrupt(3), readCANbus, FALLING);
   
   Serial.begin(115200);
-  Serial.println("It's time to go fishing with the Dailys!!");
+  //Serial.println("It's time to go fishing with the Dailys!!");
 
   //start CAN communications
-  Serial.println("Setting up CAN0..."); //J1939
+  //Serial.println("Setting up CAN0...");
   if(CAN0.begin(CAN_500KBPS) == CAN_OK) Serial.println("CAN0 init ok!!");
   else Serial.println("CAN0 init fail!!");
 
-  CAN0.init_Filt(0,1,0x211);
-  CAN0.init_Filt(0,1,0x212);
-  CAN0.init_Filt(0,1,0x221);
-  CAN0.init_Filt(0,1,0x222);
+  CAN0.init_Mask(0,1,0x7FF);
+  CAN0.init_Mask(2,1,0x7FF);
+  
+  CAN0.init_Filt(0,1,0x211 ^ 0x7FF);
+  CAN0.init_Filt(1,1,0x212 ^ 0x7FF);
+  CAN0.init_Filt(2,1,0x221 ^ 0x7FF);
+  CAN0.init_Filt(3,1,0x222 ^ 0x7FF);
+  CAN0.init_Filt(4,1,0x210 ^ 0x7FF);
 
   // make the pushbutton's pin an input:
   pinMode(rightButton, INPUT);
@@ -125,7 +124,7 @@ void setup() {
 
 // the loop routine runs over and over again forever:
 void loop() {
-  //readCANbus();
+  readCANbus();
   
 
   //Button Debouncing*********************************************************************************    
@@ -227,9 +226,10 @@ void sendJoyStick(){
 /***********************************************************************************************/
 
 void readCANbus(){
-  //while(CAN0.checkReceive()){
+  if(CAN0.checkReceive()){
     CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
     rxId = CAN0.getCanId();   
+    
     // Get message ID
 //    Serial.print(rxId, HEX);
 //    for (int i = 0;i<len;i++){
@@ -239,7 +239,7 @@ void readCANbus(){
 //      Serial.print(hexChars);
 //    }
 //    Serial.println();
-     
+    if (!dispSerial.overflow()){ 
     if (rxId == 0x210){ //Mode Message
       numberOfModes = rxBuf[0];
       if (rxBuf[1] <= numberOfModes) mode = rxBuf[1];
@@ -276,6 +276,8 @@ void readCANbus(){
     else {
      rxId = 0;
     }
-  //}
+    //digitalWrite(2,HIGH);
+  }
+  }
 }
 
