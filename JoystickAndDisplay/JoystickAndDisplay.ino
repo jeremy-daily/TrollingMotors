@@ -216,7 +216,7 @@ void sendJoyStick(){
     bitWrite(joyMessage[1],6,0);
     bitWrite(joyMessage[1],7,0);
     
-    CAN0.sendMsgBuf(0x777, 0, 2, joyMessage );
+    CAN0.sendMsgBuf(0x007, 0, 2, joyMessage );
   }
 }
 /***********************************************************************************************/

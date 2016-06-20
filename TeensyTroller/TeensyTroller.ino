@@ -1,4 +1,3 @@
-#include <SFE_HMC6343.h>
 
 #include <TinyGPS++.h>
 
@@ -11,6 +10,8 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
+#include <SFE_HMC6343.h>
+
 #include <Servo.h> 
 
 
@@ -27,6 +28,7 @@ elapsedMillis mode3displaytimer;
 elapsedMillis mode4displaytimer;
 elapsedMillis mode5displaytimer;
 elapsedMillis mode6displaytimer;
+elapsedMillis CANaliveTimer;
 
 byte mode = 0; 
 byte numberOfModes = 7; //This limits the number of displayed modes.
@@ -89,6 +91,7 @@ float yawRate = 0.0;
 float compassHeading = 0.0;
 
 void setup() {
+  
   Serial.begin(115200); //debug console
   
   tft.begin();
@@ -96,6 +99,19 @@ void setup() {
   tft.setTextColor(ILI9341_YELLOW);
   tft.setTextSize(3);
   tft.print("Setting Up...");
+  
+  tft.println("Starting IMU");
+   /* Initialise the sensor */
+  Wire.begin();
+  Wire.beginTransmission(0x28);
+  Wire.write(0x3F);
+  Wire.write(0x20);
+  Wire.endTransmission();
+  
+  delay(100); 
+  tft.print(bno.begin());
+  delay(100);
+  bno.setExtCrystalUse(true);
   
   tft.print("Starting Srvo");
   rightServo.attach(23);  // attaches the servo on pin 23 to the servo object 
@@ -105,16 +121,10 @@ void setup() {
   tft.println("Starting GPS");
   Serial1.begin(9600);
  
-  
-  tft.println("Starting IMU");
-   /* Initialise the sensor */
-  bno.begin();
-  bno.setExtCrystalUse(true);
-  
   tft.print("Starting Comp");
   compass.init();
 
-   tft.println("Starting CAN");
+  tft.println("Starting CAN");
   delay(100);
   CANbus.begin();
   
@@ -159,7 +169,7 @@ void setup() {
 } 
 
 void sendCANmessages(){
-  if (broadcastCANtimer >= 100) {
+  if (broadcastCANtimer >= 1000) {
     broadcastCANtimer = 0;
   
     //GPS Messages
@@ -189,8 +199,9 @@ void readCANmessages(){
       waitingForCANtimer = 0; //reset the can message timeout
       CANRXcount++;
       ID = rxmsg.id;
-      if (ID == 0x777)
+      if (ID == 0x007)
       {
+        CANaliveTimer = 0;
         mode=rxmsg.buf[0];
         upButtonState=bitRead(rxmsg.buf[1],0);
         downButtonState=bitRead(rxmsg.buf[1],1);
@@ -290,6 +301,9 @@ void displayData(){
       tft.print("Sats:");
       tft.setCursor(90,280);
       tft.print(gps.satellites.value());
+      tft.print(" Mode:");
+      tft.print(mode);
+      
     }
   }
 }
@@ -349,6 +363,7 @@ void calculateMotorOutput(){
 
  
 void loop() {
+  if (CANaliveTimer > 500) mode = 0;
   
   //measure stuff
   euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
@@ -368,28 +383,43 @@ void loop() {
   
   //get user input
   readCANmessages();
-  if (upButtonState && pushButtonState){
-    delay(200);
-    if (upButtonState && pushButtonState) mode++;
+  
+  
+  
+  if (mode == 0){
+    displayMode0();
     
   }
-  if (downButtonState && pushButtonState){
-    mode = 0;
-  }
-  
-  if (mode == 1){
+  else if (mode == 1){
     displayMode1();
     
   }
   else if (mode == 2){
+    displayMode2();
     distanceToFixPoint = gps.distanceBetween(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
     courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
-    displayMode2();
  
   }
     
 }
 
+void displayMode0(){
+  if (mode0displaytimer >= 200){
+    mode0displaytimer = 0;
+    sprintf(message,"Mode: %i ",mode);
+    txmsg.id=0x211; //sent to the lower right
+    txmsg.len=8;
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+    
+    sprintf(message,"OFF N:%i ",int(gps.satellites.value()));
+    txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+  }
+}
 void displayMode1(){
   if (mode1displaytimer >= 200){
     mode1displaytimer = 0;
@@ -399,12 +429,17 @@ void displayMode1(){
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
+
+    sprintf(message,"Man N:%i ",int(gps.satellites.value()));
+    txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
   }
 }
-
 void displayMode2(){
   if (mode2displaytimer >= 200){
-    mode1displaytimer = 0;
+    mode2displaytimer = 0;
     
     strncpy(message,"Mode 2 S",8);
     txmsg.id=0x211; //sent to the lower right
