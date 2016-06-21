@@ -13,14 +13,9 @@ SoftwareSerial dispSerial(8,9);
 // enable the CAN interface with the MCP2515 chip
 MCP_CAN CAN0(10); 
 
-char line1_1chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
-char line1_2chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
-char line2_1chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
-char line2_3chars[8] = {' ',' ',' ',' ',' ',' ',' ',' '};
- 
 byte joyMessage[8];
 byte mode;
-byte numberOfModes = 2;
+byte numberOfModes = 6;
 
 //CAN interface messages (Borrowed from the example).
 long unsigned int rxId;
@@ -76,15 +71,28 @@ const long tripleClickThreshold = 350;
 
 void setup() {
 
-  pinMode(2, INPUT); //Monitor for CAN messages
+  pinMode(2, INPUT_PULLUP); //Monitor for CAN messages
+  //pinMode(3, INPUT_PULLUP); //Monitor for CAN messages
 
+  //attachInterrupt(digitalPinToInterrupt(2), readCANbus, FALLING);
+  //attachInterrupt(digitalPinToInterrupt(3), readCANbus, FALLING);
+  
   Serial.begin(115200);
-  Serial.println("It's time to go fishing with the Dailys!!");
+  //Serial.println("It's time to go fishing with the Dailys!!");
 
   //start CAN communications
-  Serial.println("Setting up CAN0..."); //J1939
+  //Serial.println("Setting up CAN0...");
   if(CAN0.begin(CAN_500KBPS) == CAN_OK) Serial.println("CAN0 init ok!!");
   else Serial.println("CAN0 init fail!!");
+
+  CAN0.init_Mask(0,1,0x7FF);
+  CAN0.init_Mask(2,1,0x7FF);
+  
+  CAN0.init_Filt(0,1,0x211 ^ 0x7FF);
+  CAN0.init_Filt(1,1,0x212 ^ 0x7FF);
+  CAN0.init_Filt(2,1,0x221 ^ 0x7FF);
+  CAN0.init_Filt(3,1,0x222 ^ 0x7FF);
+  CAN0.init_Filt(4,1,0x210 ^ 0x7FF);
 
   // make the pushbutton's pin an input:
   pinMode(rightButton, INPUT);
@@ -117,6 +125,7 @@ void setup() {
 // the loop routine runs over and over again forever:
 void loop() {
   readCANbus();
+  
 
   //Button Debouncing*********************************************************************************    
   // read the input pin:
@@ -206,44 +215,69 @@ void sendJoyStick(){
     bitWrite(joyMessage[1],6,0);
     bitWrite(joyMessage[1],7,0);
     
-    CAN0.sendMsgBuf(0x777, 0, 2, joyMessage );
+    CAN0.sendMsgBuf(0x007, 0, 2, joyMessage );
   }
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
 
+
+/***********************************************************************************************/
+/***********************************************************************************************/
+
 void readCANbus(){
-  CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
-  rxId = CAN0.getCanId();                    // Get message ID
-  if (rxId == 0x210){ //Mode Message
-    numberOfModes = rxBuf[0];
-    if (rxBuf[1] <= numberOfModes) mode = rxBuf[1];
+  if(CAN0.checkReceive()){
+    CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
+    rxId = CAN0.getCanId();   
+    
+    // Get message ID
+//    Serial.print(rxId, HEX);
+//    for (int i = 0;i<len;i++){
+//      
+//      char hexChars[5];
+//      sprintf(hexChars,", %02X",rxBuf[i]);
+//      Serial.print(hexChars);
+//    }
+//    Serial.println();
+    if (!dispSerial.overflow()){ 
+    if (rxId == 0x210){ //Mode Message
+      numberOfModes = rxBuf[0];
+      if (rxBuf[1] <= numberOfModes) mode = rxBuf[1];
+    }
+    else if (rxId == 0x211){ //Display Characters on first quarter of screen
+      dispSerial.write(254); //escape character
+      dispSerial.write(128); //Move Cursor
+      char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str11);
+      //Serial.println(str11);
+    }
+    else if (rxId == 0x212){
+      dispSerial.write(254); //escape character
+      dispSerial.write(136); //Move 
+      char str12[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str12);
+      //Serial.println(str12);
+        
+    }
+    else if (rxId == 0x221){
+      dispSerial.write(254); //escape character
+      dispSerial.write(192); //Move 
+      char str21[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str21);
+      //Serial.println(str21);
+    }
+    else if (rxId == 0x222){
+      dispSerial.write(254); //escape character
+      dispSerial.write(200); //Move 
+      char str22[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      dispSerial.print(str22);
+      //Serial.println(str22);
+    }
+    else {
+     rxId = 0;
+    }
+    //digitalWrite(2,HIGH);
   }
-  else if (rxId == 0x211){ //Display Characters on first quarter of screen
-    dispSerial.write(254); //escape character
-    dispSerial.write(128); //Move Cursor
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
   }
-  else if (rxId == 0x212){
-    dispSerial.write(254); //escape character
-    dispSerial.write(136); //Move 
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
-      
-  }
-  else if (rxId == 0x221){
-    dispSerial.write(254); //escape character
-    dispSerial.write(192); //Move 
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
-  }
-  else if (rxId == 0x222){
-    dispSerial.write(254); //escape character
-    dispSerial.write(200); //Move 
-    char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
-    dispSerial.print(str11);
-  }
-  
 }
 
