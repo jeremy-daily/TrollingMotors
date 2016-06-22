@@ -1,9 +1,6 @@
-
 #include <TinyGPS++.h>
-
 #include <FlexCAN.h>
 #include <kinetis_flexcan.h>
-
 #include "SPI.h"
 #include "ILI9341_t3.h"
 #include  <i2c_t3.h>
@@ -11,8 +8,21 @@
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
 #include <SFE_HMC6343.h>
-
 #include <Servo.h> 
+
+double turnRate = 0.01;
+
+double speedK = 1;
+double speedI = 1;
+double speedD = 0;
+
+double turnK = 1;
+double turnI = 1;
+double turnD = 0;
+
+double angleK = 1;
+double angleI = 1;
+double angleD = 0;
 
 
 IntervalTimer calculateMotorOutputTimer; // this is interrupt based
@@ -29,10 +39,20 @@ elapsedMillis mode4displaytimer;
 elapsedMillis mode5displaytimer;
 elapsedMillis mode6displaytimer;
 elapsedMillis CANaliveTimer;
+elapsedMillis speedSettingTimer;
+
+const int speedSetTime = 50; //set how quickly the speed changes.
+
+boolean mode1started = false;
+boolean mode2started = false;
+boolean mode3started = false;
+boolean mode4started = false;
+boolean mode5started = false;
 
 byte mode = 0; 
+byte currentMode = 0;
 byte numberOfModes = 7; //This limits the number of displayed modes.
-char modeNames[7][6]={" Off ","Man. ","TurnL","TurnR","Fix  ","Fig8 ", "Tune "}; // This array is the length of the number of m
+//char modeNames[7][6]={" Off ","Man. ","TurnL","TurnR","Fix  ","Fig8 ", "Tune "}; // This array is the length of the number of m
 
 boolean rightButtonState = LOW;
 boolean leftButtonState = LOW;
@@ -48,16 +68,11 @@ double courseToFixPoint = 0;
 double speedGoal=0;
 double coarseGoal=0;
 
-
+int speedSetting;
  
 //Initialize the GPS
 TinyGPSPlus gps;
-////Declare variables used by the GPS
-//long lat, lon;
-//unsigned long fix_age, time, date, speed, course;
-//unsigned long chars;
-//unsigned short sentences, failed_checksum;
-//double flat, flon;
+
 
 // Setup the TFT display.
 #define TFT_DC 20
@@ -384,75 +399,344 @@ void loop() {
   //get user input
   readCANmessages();
   
-  
+  if (mode != currentMode) resetOutputs();
   
   if (mode == 0){
     displayMode0();
     
+    
   }
   else if (mode == 1){
     displayMode1();
-    
+   
+    if (mode1started){
+      if (speedSettingTimer > speedSetTime) {
+        speedSettingTimer = 0;
+        if (upButtonState) speedSetting++;
+        if (downButtonState) speedSetting--;
+        speedSetting = constrain(speedSetting,-99,100);
+      }
+    }
+
+    if (upButtonState && pushButtonState) {mode1started = true; speedSetting=0;}
+    if (downButtonState && pushButtonState){ speedSetting=0; }
+
   }
   else if (mode == 2){
     displayMode2();
+    if (upButtonState && pushButtonState) mode2started = true;
+    
     distanceToFixPoint = gps.distanceBetween(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
     courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
  
   }
+  else if (mode == 3){
+    if (upButtonState && pushButtonState) mode3started = true;
+    displayMode3();
     
+  }
+  else if (mode == 4){
+    if (upButtonState && pushButtonState) mode4started = true;
+    displayMode4();
+    
+  }
+  else if (mode == 5){
+    if (upButtonState && pushButtonState) mode5started = true;
+    displayMode5();
+    
+  }
+  else{
+    mode = 0;
+  }
+    
+}
+
+void resetOutputs(){
+  speedSetting = 0;
+  mode1started = false;
+  mode2started = false;
+  mode3started = false;
+  mode4started = false;
+  mode5started = false;
+  
+  tft.fillScreen(ILI9341_GREEN);
+  delay(100);
+  tft.fillScreen(ILI9341_BLACK);
+  currentMode = mode;
 }
 
 void displayMode0(){
   if (mode0displaytimer >= 200){
     mode0displaytimer = 0;
-    sprintf(message,"Mode: %i ",mode);
+    
+    sprintf(message,"%i  OFF  ",mode);
     txmsg.id=0x211; //sent to the lower right
     txmsg.len=8;
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
     
-    sprintf(message,"OFF N:%i ",int(gps.satellites.value()));
+    sprintf(message," Sats:%2i ",int(gps.satellites.value()));
     txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+    txmsg.id=0x221; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+    txmsg.id=0x222; //sent to the lower right
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
   }
 }
+
+
 void displayMode1(){
   if (mode1displaytimer >= 200){
     mode1displaytimer = 0;
-    sprintf(message,"Mode: %i ",mode);
+    
+    sprintf(message,"%i Manual",mode);
     txmsg.id=0x211; //sent to the lower right
     txmsg.len=8;
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
 
-    sprintf(message,"Man N:%i ",int(gps.satellites.value()));
+    sprintf(message," Spd:%3i",int(speedSetting));
     txmsg.id=0x212; //sent to the lower right
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
+
+    if (mode1started){
+      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+    }
+    else
+    {
+      strncpy(message,"Butn+Up ",8);
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      strncpy(message,"to Start",8);
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++; 
+    }
   }
 }
+
+
 void displayMode2(){
   if (mode2displaytimer >= 200){
     mode2displaytimer = 0;
     
-    strncpy(message,"Mode 2 S",8);
+    sprintf(message,"%i Turn90",mode);
     txmsg.id=0x211; //sent to the lower right
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
 
-    sprintf(message,"ats: %i  ",int(gps.satellites.value()));
+    sprintf(message," Sats:%2i  ",int(gps.satellites.value()));
+    txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+    
+    if (mode2started){
+      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+    }
+    else
+    {
+      strncpy(message,"Butn+Up ",8);
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      strncpy(message,"to Start",8);
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++; 
+    }
+
+    
+  }
+}
+
+
+void displayMode3(){
+  if (mode3displaytimer >= 200){
+    mode3displaytimer = 0;
+    
+    sprintf(message,"%i Anchor",mode);
+    txmsg.id=0x211; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    sprintf(message," Sats:%2i  ",int(gps.satellites.value()));
     txmsg.id=0x212; //sent to the lower right
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
 
+    if (mode3started){
+      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+    }
+    else
+    {
+      strncpy(message,"Butn+Up ",8);
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      strncpy(message,"to Start",8);
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++; 
+    }
+
+    
+  }
+}
+
+
+void displayMode4(){
+  if (mode4displaytimer >= 200){
+    mode4displaytimer = 0;
+    
+    mode1displaytimer = 0;
+    sprintf(message,"%i Fig. 8",mode);
+    txmsg.id=0x211; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    sprintf(message," Sats:%2i",int(gps.satellites.value()));
+    txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+    
+    if (mode4started){
+      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+    }
+    else
+    {
+      strncpy(message,"Butn+Up ",8);
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      strncpy(message,"to Start",8);
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++; 
+    }
+
+    
+  }
+}
+
+
+void displayMode5(){
+  if (mode5displaytimer >= 200){
+    mode5displaytimer = 0;
+    
+    mode1displaytimer = 0;
+    sprintf(message,"%i Tune  ",mode);
+    txmsg.id=0x211; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    sprintf(message," Sats:%2i  ",int(gps.satellites.value()));
+    txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    if (mode5started){
+      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+    }
+    else
+    {
+      strncpy(message,"Butn+Up ",8);
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      strncpy(message,"to Start",8);
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++; 
+    }
     
   }
 }
