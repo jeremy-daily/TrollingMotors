@@ -81,13 +81,14 @@ void setup() {
   //attachInterrupt(digitalPinToInterrupt(2), readCANbus, FALLING);
   //attachInterrupt(digitalPinToInterrupt(3), readCANbus, FALLING);
   
-  Serial.begin(115200);
-  //Serial.println("It's time to go fishing with the Dailys!!");
-
+ // Serial.begin(115200);
+ // Serial.println("It's time to go fishing with the Dailys!!");
+  delay(400);
   //start CAN communications
   //Serial.println("Setting up CAN0...");
-  if(CAN0.begin(CAN_500KBPS) == CAN_OK) Serial.println("CAN0 init ok!!");
-  else Serial.println("CAN0 init fail!!");
+  //if(CAN0.begin(CAN_500KBPS) == CAN_OK) //Serial.println("CAN0 init ok!!");
+  //else Serial.println("CAN0 init fail!!");
+  CAN0.begin(CAN_500KBPS);
 
   CAN0.init_Mask(0,1,0x7FF);
   CAN0.init_Mask(2,1,0x7FF);
@@ -106,7 +107,7 @@ void setup() {
   pinMode(upButton, INPUT);
 
   dispSerial.begin(9600);
-  delay(10);
+  delay(500);
 
   // dispSerial.write(0x7C);
   // dispSerial.write(157); //Full Brightness
@@ -123,6 +124,8 @@ void setup() {
   delay(10);
   dispSerial.print("Let's go fishing");
   dispSerial.print("Fun for everyone");
+  delay(2000);
+
 
 }
 
@@ -191,6 +194,7 @@ void loop() {
           doubleClick = true;
           mode += 1;
           if (mode >= numberOfModes) mode = 0;
+          Serial.println(mode);
         }
         else {
           doubleClick = false;
@@ -220,7 +224,7 @@ void loop() {
 /***********************************************************************************************/
 void sendJoyStick(){
   currentMillis=millis();
-  if (currentMillis - lastJoyTime >=50){
+  if (currentMillis - lastJoyTime >= 50){
     lastJoyTime = currentMillis;
     joyMessage[0] = byte(mode);
     bitWrite(joyMessage[1],0,upButtonState);
@@ -232,7 +236,7 @@ void sendJoyStick(){
     bitWrite(joyMessage[1],6,0);
     bitWrite(joyMessage[1],7,0);
     
-    CAN0.sendMsgBuf(0x007, 0, 2, joyMessage );
+    CAN0.sendMsgBuf(0x700, 0, 2, joyMessage );
   }
 }
 /***********************************************************************************************/
@@ -254,16 +258,16 @@ void readCANbus(){
       writeOnce=false;
       
     }
-  if (!dispSerial.overflow()){ 
-    // Get message ID
-    Serial.print(rxId, HEX);
-    for (int i = 0;i<len;i++){
-      
-      char hexChars[5];
-      sprintf(hexChars,", %02X",rxBuf[i]);
-      Serial.print(hexChars);
-    }
-    Serial.println();
+ // if (!dispSerial.overflow()){ 
+//    // Get message ID
+//    Serial.print(rxId, HEX);
+//    for (int i = 0;i<len;i++){
+//      
+//      char hexChars[5];
+//      sprintf(hexChars,", %02X",rxBuf[i]);
+//      Serial.print(hexChars);
+//    }
+//    Serial.println();
     
     if (rxId == 0x211){ //Display Characters on first quarter of screen
       dispSerial.write(254); //escape character
@@ -299,6 +303,6 @@ void readCANbus(){
     }
     //digitalWrite(2,HIGH);
   }
-  }
+ // }
 }
 
