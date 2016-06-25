@@ -15,6 +15,7 @@ MCP_CAN CAN0(10);
 
 byte joyMessage[8];
 byte mode;
+byte currentMode;
 byte numberOfModes = 6;
 
 //CAN interface messages (Borrowed from the example).
@@ -60,6 +61,7 @@ unsigned long doubleClickTimer = 0;
 unsigned long tripleClickTimer = 0;
 unsigned long lastSentTime = 0;
 unsigned long lastJoyTime = 0;
+unsigned long lastRXTime = 0;
 unsigned long loopCount = 0;
 unsigned long delayItime = 0;
 unsigned long lastOffDisplayTime = 0;
@@ -68,6 +70,8 @@ unsigned long lastOffDisplayTime = 0;
 const long debounceDelay = 20;
 const long doubleClickThreshold = 350;
 const long tripleClickThreshold = 350;
+
+boolean writeOnce=false;
 
 void setup() {
 
@@ -136,6 +140,19 @@ void loop() {
   upButtonReading    = digitalRead(upButton);
   // print out the state of the button:
   currentMillis = millis();
+  
+  if (currentMillis - lastRXTime > 1200){
+    mode = 0; // Reset the mode if the Mode CAN message doesn't show up.
+    if (!writeOnce){
+      dispSerial.write(254);
+      dispSerial.write(1); //clear screen
+      dispSerial.write(254); // move cursor to beginning of first line (254, 128)
+      dispSerial.write(128);
+      dispSerial.print("Lost CAN Comms.");
+      writeOnce=true;
+    }
+  }
+  
   if (rightButtonReading != lastRightButtonState) lastRightButtonDebounceTime = currentMillis;
   if (leftButtonReading  != lastLeftButtonState)  lastLeftButtonDebounceTime  = currentMillis;
   if (downButtonReading  != lastDownButtonState)  lastDownButtonDebounceTime  = currentMillis;
@@ -229,22 +246,26 @@ void readCANbus(){
   if(CAN0.checkReceive()){
     CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
     rxId = CAN0.getCanId();   
-    
-    // Get message ID
-//    Serial.print(rxId, HEX);
-//    for (int i = 0;i<len;i++){
-//      
-//      char hexChars[5];
-//      sprintf(hexChars,", %02X",rxBuf[i]);
-//      Serial.print(hexChars);
-//    }
-//    Serial.println();
-    if (!dispSerial.overflow()){ 
+   
+  
     if (rxId == 0x210){ //Mode Message
-      numberOfModes = rxBuf[0];
-      if (rxBuf[1] <= numberOfModes) mode = rxBuf[1];
+      //numberOfModes = rxBuf[0];
+      lastRXTime = currentMillis;
+      writeOnce=false;
+      
     }
-    else if (rxId == 0x211){ //Display Characters on first quarter of screen
+  if (!dispSerial.overflow()){ 
+    // Get message ID
+    Serial.print(rxId, HEX);
+    for (int i = 0;i<len;i++){
+      
+      char hexChars[5];
+      sprintf(hexChars,", %02X",rxBuf[i]);
+      Serial.print(hexChars);
+    }
+    Serial.println();
+    
+    if (rxId == 0x211){ //Display Characters on first quarter of screen
       dispSerial.write(254); //escape character
       dispSerial.write(128); //Move Cursor
       char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};

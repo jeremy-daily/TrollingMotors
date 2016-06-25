@@ -40,6 +40,8 @@ elapsedMillis mode5displaytimer;
 elapsedMillis mode6displaytimer;
 elapsedMillis CANaliveTimer;
 elapsedMillis speedSettingTimer;
+elapsedMillis broadcastCANmodeTimer;
+
 
 const int speedSetTime = 50; //set how quickly the speed changes.
 
@@ -51,7 +53,7 @@ boolean mode5started = false;
 
 byte mode = 0; 
 byte currentMode = 0;
-byte numberOfModes = 7; //This limits the number of displayed modes.
+byte numberOfModes = 6; //This limits the number of displayed modes.
 //char modeNames[7][6]={" Off ","Man. ","TurnL","TurnR","Fix  ","Fig8 ", "Tune "}; // This array is the length of the number of m
 
 boolean rightButtonState = LOW;
@@ -117,15 +119,12 @@ void setup() {
   
   tft.println("Starting IMU");
    /* Initialise the sensor */
-  Wire.begin();
-  Wire.beginTransmission(0x28);
-  Wire.write(0x3F);
-  Wire.write(0x20);
-  Wire.endTransmission();
-  
-  delay(100); 
-  tft.print(bno.begin());
-  delay(100);
+//  Wire.begin();
+//  Wire.beginTransmission(0x28);
+//  Wire.write(0x3F);
+//  Wire.write(0x20);
+//  Wire.endTransmission();
+  bno.begin();
   bno.setExtCrystalUse(true);
   
   tft.print("Starting Srvo");
@@ -204,7 +203,22 @@ void sendCANmessages(){
       CANbus.write(txmsg);
       CANTXcount++;
     }
-  }
+    
+    txmsg.id=0x210;
+    txmsg.len=8;
+    
+    txmsg.buf[0]=mode;
+    txmsg.buf[1]=numberOfModes;
+    txmsg.buf[2]=0xFF;
+    txmsg.buf[3]=0xFF;
+    txmsg.buf[4]=0xFF;
+    txmsg.buf[5]=0xFF;
+    txmsg.buf[6]=0xFF;
+    txmsg.buf[7]=0xFF;
+    
+    CANbus.write(txmsg);
+    CANTXcount++;
+    }
 }
   
 
@@ -214,8 +228,7 @@ void readCANmessages(){
       waitingForCANtimer = 0; //reset the can message timeout
       CANRXcount++;
       ID = rxmsg.id;
-      if (ID == 0x007)
-      {
+      if (ID == 0x007){
         CANaliveTimer = 0;
         mode=rxmsg.buf[0];
         upButtonState=bitRead(rxmsg.buf[1],0);
@@ -223,11 +236,9 @@ void readCANmessages(){
         leftButtonState=bitRead(rxmsg.buf[1],2);
         rightButtonState=bitRead(rxmsg.buf[1],3);
         pushButtonState=bitRead(rxmsg.buf[1],4);
-//        modeEnable=bitRead(rxmsg.buf[1],7);
       }
   }
 }
-
 void displayData(){
   if (printTFTtimer > 250){
     printTFTtimer = 0;
