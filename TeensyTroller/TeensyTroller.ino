@@ -33,6 +33,10 @@ double angleK = 1;
 double angleI = .01;
 double angleD = 0;
 
+double distK = 0.2;
+
+double waypoints[100][2];
+int waypointIndex;
 
 IntervalTimer calculateMotorOutputTimer; // this is interrupt based
 
@@ -244,6 +248,19 @@ void resetYawOffset(){
     {
       yawOffset = euler.x() - currentHeading;
     }
+}
+
+
+void make90rightWaypoints(){
+  double x0 = gps.location.lng();
+  double y0 = gps.location.lat();
+  double radius = 50; //meters
+  for (int i = 0;i<100;i++){
+    double newX = 0;
+    double newY = 0;
+    
+//    waypoints[i][2]={x0 + newX,y0 +newY};  
+  }
 }
 
 void sendCANmessages(){
@@ -584,6 +601,9 @@ void loop() {
     
     
   }
+//##############################################################################################
+//# Mode 1: Manual
+//##############################################################################################  
   else if (mode == 1){ // Manual Mode 
     displayMode1();
    
@@ -624,19 +644,60 @@ void loop() {
       goalSpeed=0; }
 
   }
+//##############################################################################################
+//# Mode 2: Turn 90 
+//##############################################################################################  
+//##############################################################################################  
+
   else if (mode == 2){ // turn 90 degrees
     displayMode2();
     if (upButtonState && pushButtonState) mode2started = true;
     
+   
+  }
+//##############################################################################################
+//# Mode 3: Anchor
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+
+  else if (mode == 3){ // anchor
+    if (upButtonState && pushButtonState) {
+      mode3started = true;
+      fixPointLat = gps.location.lat();
+      fixPointLon = gps.location.lng();
+      //resetCompassOffset();
+      resetYawOffset();
+    }
+    
+    displayMode3();
     distanceToFixPoint = gps.distanceBetween(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
     courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
- 
-  }
-  else if (mode == 3){ // anchor
-    if (upButtonState && pushButtonState) mode3started = true;
-    displayMode3();
+    if (mode3started){
+      goalAngle = courseToFixPoint;
+      if (distanceToFixPoint > 5){
+        
+        goalSpeed = distanceToFixPoint * distK; 
+      }
+      else
+      {
+        goalSpeed = 0;
+      }
+      
+    }
+    else
+    {
+      goalSpeed = 0;
+    }
     
   }
+//##############################################################################################
+//# Mode 4: Figure 8
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+
   else if (mode == 4){ // figure 8
     if (upButtonState && pushButtonState) mode4started = true;
     displayMode4();
@@ -821,20 +882,20 @@ void displayMode3(){
     CANbus.write(txmsg);
     CANTXcount++;
 
-    sprintf(message," Sats:%2i  ",int(gps.satellites.value()));
+    sprintf(message," Crs:%3i",int(courseToFixPoint));
     txmsg.id=0x212; //sent to the lower right
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
 
     if (mode3started){
-      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      sprintf(message,"D:%3i Y:",int(distanceToFixPoint));
       txmsg.id=0x221; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
       CANTXcount++;
   
-      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      sprintf(message,"%3i S%3.1f",int(yawAngle),goalSpeed);
       txmsg.id=0x222; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
@@ -993,7 +1054,7 @@ void  calculateMotorOutput(){
     int tempRightMotor = speedSetting - turnSetting - angleSetting + 92;
     int tempLeftMotor  = speedSetting + turnSetting + angleSetting + 92;
     rightMotor = constrain(tempRightMotor,8,205);
-    leftMotor  = constrain(tempLeftMotor,8,205);
+    leftMotor  = constrain(tempLeftMotor,8 ,205);
   }   
   else
   {
