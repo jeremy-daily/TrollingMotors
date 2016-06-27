@@ -37,9 +37,11 @@ double distK = 0.2;
 
 double waypoints[100][2];
 int waypointIndex;
+const int stopMotorValue = 92;
+const int maxFwdMotorValue = 8;
+const int maxRevMotorValue = 208;
 
-IntervalTimer calculateMotorOutputTimer; // this is interrupt based
-
+elapsedMillis calculateMotorOutputTimer; // this is interrupt based
 elapsedMillis broadcastCANtimer; //set up intervals 
 elapsedMillis waitingForCANtimer;
 elapsedMillis printTFTtimer;
@@ -97,6 +99,7 @@ int angleSetting;
 
 int leftMotor = 92;
 int rightMotor = 92;
+
  
 //Initialize the GPS
 TinyGPSPlus gps;
@@ -168,7 +171,6 @@ void setup() {
   delay(100);
   CANbus.begin();
   
-  calculateMotorOutputTimer.begin(calculateMotorOutput, deltaT); //call the sendCANmessages every 0.05 seconds
 
   
   strncpy(message,"Fishing ",8);
@@ -582,7 +584,6 @@ void loop() {
   
   //send stuff
   displayData();
-  debugData();
   sendCANmessages();
 
   
@@ -608,15 +609,13 @@ void loop() {
     displayMode1();
    
     if (mode1started){
+      
       if (speedSettingTimer > speedSetTime) {
         speedSettingTimer = 0;
         if (upButtonState) goalSpeed+=0.1; //mph
         if (downButtonState) goalSpeed-=0.1;
         goalSpeed = constrain(goalSpeed,0,4);
         speedSetting = 22.0 * goalSpeed; //feed forward
-
-         rightServo.write(rightMotor);
-         leftServo.write(leftMotor); 
       }
       if (courseSettingTimer > courseSetTime) {
         courseSettingTimer = 0;
@@ -625,14 +624,16 @@ void loop() {
         if (goalAngle > 360) goalAngle -= 360;
         if (goalAngle < 0   ) goalAngle += 360;
       }
+      calculateMotorOutput();
     }
     else
     {
       speedSetting = 0;
       goalAngle = yawAngle;
-      memset(differenceList,0,memorySize) ;
-      memset(differenceSpeedList,0,memorySize) ;
+      rightMotor = stopMotorValue;
+      leftMotor = stopMotorValue; 
     }
+    
     if (upButtonState && pushButtonState) {
       mode1started = true; 
       speedSetting=0; 
@@ -644,7 +645,8 @@ void loop() {
     if (downButtonState && pushButtonState){ 
       memset(differenceSpeedList,0,memorySize);
       speedSetting=0; 
-      goalSpeed=0; }
+      goalSpeed=0; 
+    }
 
   }
 //##############################################################################################
@@ -655,8 +657,16 @@ void loop() {
   else if (mode == 2){ // turn 90 degrees
     displayMode2();
     if (upButtonState && pushButtonState) mode2started = true;
-    
-   
+    if (mode2started) 
+    {
+      rightMotor = stopMotorValue;
+      leftMotor = stopMotorValue; 
+    }
+   else 
+    {
+      rightMotor = stopMotorValue;
+      leftMotor = stopMotorValue; 
+    }
   }
 //##############################################################################################
 //# Mode 3: Anchor
@@ -691,9 +701,10 @@ void loop() {
       }
       
     }
-    else
+    else 
     {
-      goalSpeed = 0;
+      rightMotor = stopMotorValue;
+      leftMotor = stopMotorValue; 
     }
     
   }
@@ -707,51 +718,69 @@ void loop() {
   else if (mode == 4){ // figure 8
     if (upButtonState && pushButtonState) mode4started = true;
     displayMode4();
-    
+    if (mode5started) {
+      //Put figure8 code here
+      rightMotor = stopMotorValue;
+      leftMotor = stopMotorValue; 
+    }
+    else 
+    {
+      rightMotor = stopMotorValue;
+      leftMotor = stopMotorValue; 
+    }
   }
+//##############################################################################################
+//# Mode 5: FULL
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+
   else if (mode == 5){ //tune
     if (upButtonState && pushButtonState) mode5started = true;
     displayMode5();
+    
     if (mode5started) {
+      
       if (upButtonState) {
-        rightServo.write(208);
-        leftServo.write(208); 
+        rightMotor = maxFwdMotorValue;
+        leftMotor = maxFwdMotorValue; 
       }
       else if (downButtonState){
-        rightServo.write(8);
-        leftServo.write(8); 
+        rightMotor = maxRevMotorValue;
+        leftMotor = maxRevMotorValue; 
       }
       else if (rightButtonState) {
-        rightServo.write(8);
-        leftServo.write(208); 
+        rightMotor = maxRevMotorValue;
+        leftMotor = maxFwdMotorValue; 
       }
       else if (leftButtonState) {
-        rightServo.write(208);
-        leftServo.write(8); 
+        rightMotor = maxFwdMotorValue;
+        leftMotor = maxRevMotorValue; 
       }
-      else {rightServo.write(92);
-        leftServo.write(92); }
-      
-      
-    
+      else 
+      {
+        rightMotor = stopMotorValue;
+        leftMotor = stopMotorValue; 
+      }
+      debugData();
     }
-    else
-    {
-      rightMotor = 92;
-      leftMotor  = 92;  
-    }
-    
-      
-    
   }
-  else{
-    mode = 0;
-    speedSetting = 0;
-      
+  else
+  {
+    rightMotor = stopMotorValue;
+    leftMotor = stopMotorValue;     
   }
+
+
+/////////////////////////////////////////////////////
+  //always send the updates to the servos
+  rightServo.write(rightMotor);
+  leftServo.write(leftMotor); 
     
 }
-
+///////////////////////////////////////////////
 void resetOutputs(){
   speedSetting = 0;
   mode1started = false;
@@ -764,11 +793,14 @@ void resetOutputs(){
   delay(50);
   displayTemplate();
   currentMode = mode;
-  rightMotor = 92;
-  leftMotor  = 92;  
+
+  //reset the integrator
+  memset(differenceList,0,memorySize) ;
+  memset(differenceSpeedList,0,memorySize) ;
+ 
+  rightMotor = stopMotorValue;
+  leftMotor  = stopMotorValue;  
   
-  rightServo.write(rightMotor);
-  leftServo.write(leftMotor); 
 }
 
 void displayMode0(){
@@ -1048,7 +1080,9 @@ void displayMode5(){
 }
 
 void  calculateMotorOutput(){
-  if (!mode == 0){
+  if (calculateMotorOutputTimer >= 100){
+    calculateMotorOutputTimer = 0;
+    
   
 
     difference = goalAngle - yawAngle;
@@ -1079,17 +1113,15 @@ void  calculateMotorOutput(){
     if (mode!=5) angleSetting = int(angleK*difference + angleI*sum + turnD*yawRate);
   
     
-    int tempRightMotor = speedSetting - turnSetting - angleSetting + 92;
-    int tempLeftMotor  = speedSetting + turnSetting + angleSetting + 92;
-    rightMotor = constrain(tempRightMotor,8,205);
-    leftMotor  = constrain(tempLeftMotor,8 ,205);
+    int tempRightMotor = speedSetting - turnSetting - angleSetting + stopMotorValue;
+    int tempLeftMotor  = speedSetting + turnSetting + angleSetting + stopMotorValue;
+    rightMotor = constrain(tempRightMotor,maxFwdMotorValue,maxRevMotorValue);
+    leftMotor  = constrain(tempLeftMotor,maxFwdMotorValue ,maxRevMotorValue);
+    
+    
+    //print
+    debugData();
   }
-   else
-  {
-    rightMotor = 92;
-    leftMotor  = 92;  
-  }
-  
  
 }
 
