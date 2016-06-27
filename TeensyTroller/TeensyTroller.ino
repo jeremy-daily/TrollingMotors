@@ -25,11 +25,11 @@ double speedK = .1;
 double speedI = .01;
 double speedD = 0;
 
-double turnK = 100;
+double turnK = 0;
 double turnI = 0;
 double turnD = 0;
 
-double angleK = 1;
+double angleK = 5;
 double angleI = .01;
 double angleD = 0;
 
@@ -95,8 +95,8 @@ double turnSetting = 0;
 int speedSetting;
 int angleSetting;
 
-int leftMotor = 90;
-int rightMotor = 90;
+int leftMotor = 92;
+int rightMotor = 92;
  
 //Initialize the GPS
 TinyGPSPlus gps;
@@ -614,6 +614,9 @@ void loop() {
         if (downButtonState) goalSpeed-=0.1;
         goalSpeed = constrain(goalSpeed,0,4);
         speedSetting = 22.0 * goalSpeed; //feed forward
+
+         rightServo.write(rightMotor);
+         leftServo.write(leftMotor); 
       }
       if (courseSettingTimer > courseSetTime) {
         courseSettingTimer = 0;
@@ -678,6 +681,9 @@ void loop() {
       if (distanceToFixPoint > 5){
         
         goalSpeed = distanceToFixPoint * distK; 
+
+         rightServo.write(rightMotor);
+         leftServo.write(leftMotor); 
       }
       else
       {
@@ -707,18 +713,35 @@ void loop() {
     if (upButtonState && pushButtonState) mode5started = true;
     displayMode5();
     if (mode5started) {
-      if (upButtonState) speedSetting = 150;
-      else if (downButtonState) speedSetting = -150;
-      else speedSetting = 0;
-      if (leftButtonState) turnSetting = 150;
-      else if (rightButtonState) turnSetting = -150;
-      else turnSetting = 0;
+      if (upButtonState) {
+        rightServo.write(208);
+        leftServo.write(208); 
+      }
+      else if (downButtonState){
+        rightServo.write(8);
+        leftServo.write(8); 
+      }
+      else if (rightButtonState) {
+        rightServo.write(8);
+        leftServo.write(208); 
+      }
+      else if (leftButtonState) {
+        rightServo.write(208);
+        leftServo.write(8); 
+      }
+      else {rightServo.write(92);
+        leftServo.write(92); }
+      
+      
+    
     }
     else
     {
-      speedSetting = 0;
-      goalAngle = yawAngle; 
+      rightMotor = 92;
+      leftMotor  = 92;  
     }
+    
+      
     
   }
   else{
@@ -741,6 +764,11 @@ void resetOutputs(){
   delay(50);
   displayTemplate();
   currentMode = mode;
+  rightMotor = 92;
+  leftMotor  = 92;  
+  
+  rightServo.write(rightMotor);
+  leftServo.write(leftMotor); 
 }
 
 void displayMode0(){
@@ -1055,13 +1083,13 @@ void  calculateMotorOutput(){
     int tempLeftMotor  = speedSetting + turnSetting + angleSetting + 92;
     rightMotor = constrain(tempRightMotor,8,205);
     leftMotor  = constrain(tempLeftMotor,8 ,205);
-  }   
-  else
+  }
+   else
   {
     rightMotor = 92;
     leftMotor  = 92;  
   }
-  rightServo.write(rightMotor);
-  leftServo.write(leftMotor); 
+  
+ 
 }
 
