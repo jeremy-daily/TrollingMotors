@@ -11,10 +11,10 @@
 #include <Servo.h> 
 
 
-const int memorySize = 512;
-double differenceList[512];
-double differenceSpeedList[512];
-const uint32_t deltaT = 50000; //usec for calculations and output
+const int memorySize = 2000;
+double differenceList[2000];
+double differenceSpeedList[2000];
+const uint32_t deltaT = 50; //milliseconds for calculations and output
 
 double yawOffset = 0;
 double compassOffset = 0;
@@ -29,8 +29,8 @@ double turnK = 0;
 double turnI = 0;
 double turnD = 0;
 
-double angleK = 5;
-double angleI = .01;
+double angleK = 1.8;
+double angleI = .4;
 double angleD = 0;
 
 double distK = 0.2;
@@ -625,6 +625,8 @@ void loop() {
         if (goalAngle < 0   ) goalAngle += 360;
       }
       calculateMotorOutput();
+      
+      
     }
     else
     {
@@ -679,7 +681,7 @@ void loop() {
       mode3started = true;
       fixPointLat = gps.location.lat();
       fixPointLon = gps.location.lng();
-      //resetCompassOffset();
+      resetCompassOffset();
       resetYawOffset();
     }
     
@@ -691,22 +693,15 @@ void loop() {
       if (distanceToFixPoint > 5){
         
         goalSpeed = distanceToFixPoint * distK; 
-
-         rightServo.write(rightMotor);
-         leftServo.write(leftMotor); 
+        calculateMotorOutput();
       }
       else
       {
-        goalSpeed = 0;
+        rightMotor = stopMotorValue;
+        leftMotor = stopMotorValue;
       }
       
     }
-    else 
-    {
-      rightMotor = stopMotorValue;
-      leftMotor = stopMotorValue; 
-    }
-    
   }
 //##############################################################################################
 //# Mode 4: Figure 8
@@ -764,7 +759,7 @@ void loop() {
         rightMotor = stopMotorValue;
         leftMotor = stopMotorValue; 
       }
-      debugData();
+   
     }
   }
   else
@@ -1103,14 +1098,15 @@ void  calculateMotorOutput(){
       differenceSpeedList[diffIndex] = speedDifference;
       diffSpeedIndex+=1;
       if (diffSpeedIndex >= memorySize) diffSpeedIndex = 0;
+      
       double speedSum = 0;
       for (int j = 0; j < memorySize; j++) speedSum += differenceSpeedList[j];
       
-      speedSetting += int(speedK*speedDifference + speedI*speedSum);
+      speedSetting += int(speedK*speedDifference + speedI*speedSum/memorySize);
       
     }
 
-    if (mode!=5) angleSetting = int(angleK*difference + angleI*sum + turnD*yawRate);
+    if (mode!=5) angleSetting = int(angleK*difference + angleI*sum/memorySize + turnD*yawRate);
   
     
     int tempRightMotor = speedSetting - turnSetting - angleSetting + stopMotorValue;
