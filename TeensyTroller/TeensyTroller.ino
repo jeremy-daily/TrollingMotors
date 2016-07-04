@@ -18,8 +18,12 @@ const uint32_t deltaT = 50; //milliseconds for calculations and output
 
 double yawOffset = 0;
 double compassOffset = 0;
+double initialYaw;
 
 double turnRate = 0.01;
+
+double totalTurn = 0;
+double lastAngle = 0;
 
 double speedK = .1;
 double speedI = .01;
@@ -57,6 +61,9 @@ elapsedMillis CANaliveTimer;
 elapsedMillis speedSettingTimer;
 elapsedMillis broadcastCANmodeTimer;
 elapsedMillis courseSettingTimer;
+elapsedMillis compassReadingTimer;
+elapsedMillis gyroReadingTimer;
+elapsedMillis delayTimer;
 
 const int speedSetTime = 150; //set how quickly the speed changes.
 const int courseSetTime = 150; //set how quickly the speed changes.
@@ -66,10 +73,11 @@ boolean mode2started = false;
 boolean mode3started = false;
 boolean mode4started = false;
 boolean mode5started = false;
+boolean mode6started = false;
 
 byte mode = 0; 
 byte currentMode = 0;
-byte numberOfModes = 6; //This limits the number of displayed modes.
+byte numberOfModes = 7; //This limits the number of displayed modes.
 //char modeNames[7][6]={" Off ","Man. ","TurnL","TurnR","Fix  ","Fig8 ", "Tune "}; // This array is the length of the number of m
 
 boolean rightButtonState = LOW;
@@ -89,10 +97,10 @@ int diffSpeedIndex = 0;
 
 double difference = 0;
 double speedDifference = 0;
-double currentHeading = 0;
 double goalAngle = 0;
 double goalSpeed = 0;
 double turnSetting = 0;
+double tempHeading = 0;
 
 int speedSetting;
 int angleSetting;
@@ -125,7 +133,7 @@ static CAN_message_t txmsg,rxmsg;
 uint32_t CANTXcount = 0;
 uint32_t CANRXcount = 0;
 uint32_t ID = 0;
-char message[9] ="        "; //initialize with spaces
+char message[17] ="                "; //initialize with spaces
 
 // setup the IMU sensor
 Adafruit_BNO055 bno = Adafruit_BNO055();
@@ -139,6 +147,7 @@ float compassHeading = 0.0;
 void setup() {
   
   Serial.begin(115200); //debug console
+  delay(500);
   
   tft.begin();
   tft.fillScreen(ILI9341_BLACK);
@@ -155,6 +164,28 @@ void setup() {
 //  Wire.endTransmission();
   bno.begin();
   bno.setExtCrystalUse(true);
+
+  bno.setMode(bno.OPERATION_MODE_CONFIG);
+
+  Wire.beginTransmission(BNO055_ADDRESS_A);
+  Wire.write(uint8_t(0x07)); //Page ID
+  Wire.write(uint8_t(0x01)); // Set to page 1
+  Wire.endTransmission();
+  delay(10);
+  
+  Wire.beginTransmission(BNO055_ADDRESS_A);
+  Wire.write(uint8_t(0x0A)); //Gyro config
+  Wire.write(uint8_t(0b00100100)); // Set gyroscope to 125deg/s at 23Hz (see pg 28 of datasheet)
+  Wire.endTransmission();
+  delay(10);
+  
+  Wire.beginTransmission(BNO055_ADDRESS_A);
+  Wire.write(uint8_t(0x07)); //Page ID
+  Wire.write(uint8_t(0x00)); // Set to page 1
+  Wire.endTransmission();
+  delay(10);
+
+  bno.setMode(bno.OPERATION_MODE_AMG);//
   
   tft.print("Starting Srvo");
   rightServo.attach(23);  // attaches the servo on pin 23 to the servo object 
@@ -166,7 +197,13 @@ void setup() {
  
   tft.print("Starting Comp");
   compass.init();
-
+  byte bSN_LSB = compass.readEEPROM(SN_LSB);
+  byte bSN_MSB = compass.readEEPROM(SN_MSB);
+  tft.print("S/N:");
+  tft.println(word(bSN_MSB,bSN_LSB));
+  compass.writeEEPROM(0x14,0x04); //Set filter to 4.
+  compass.exitStandby();
+  
   tft.println("Starting CAN");
   delay(100);
   CANbus.begin();
@@ -236,19 +273,19 @@ void resetCompassOffset(){
 }
 
 void resetYawOffset(){
-  currentHeading = getCompassHeading();
+  compassHeading = getCompassHeading();
   
-  if (currentHeading >= 270 && euler.x() <= 90)
+  if (compassHeading >= 270 && euler.x() <= 90)
     {
-      yawOffset = euler.x() - currentHeading -  + 360;
+      yawOffset = euler.x() - compassHeading -  + 360;
     }
-    else if (currentHeading <= 90 && euler.x() >= 270)
+    else if (compassHeading <= 90 && euler.x() >= 270)
     {
-      yawOffset = euler.x() - currentHeading - 360;
+      yawOffset = euler.x() - compassHeading - 360;
     }
     else
     {
-      yawOffset = euler.x() - currentHeading;
+      yawOffset = euler.x() - compassHeading;
     }
 }
 
@@ -293,8 +330,8 @@ void sendCANmessages(){
     txmsg.id=0x210;
     txmsg.len=8;
     
-    txmsg.buf[0]=mode;
-    txmsg.buf[1]=numberOfModes;
+    txmsg.buf[0]=numberOfModes;
+    txmsg.buf[1]=mode;
     txmsg.buf[2]=0xFF;
     txmsg.buf[3]=0xFF;
     txmsg.buf[4]=0xFF;
@@ -557,7 +594,8 @@ void debugData(){
 
 double getCompassHeading(){
   compass.readHeading();
-  double tempHeading = compass.heading/10.0 - compassOffset;
+     
+  tempHeading = compass.heading/10.0 - compassOffset;
   if (tempHeading >= 360) tempHeading -= 360;
   if (tempHeading < 0) tempHeading += 360;
   return tempHeading;
@@ -574,10 +612,18 @@ double getYawAngle(){
 void loop() {
   
   //measure stuff
-  gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-  yawRate = gyro.z();
-  compassHeading = getCompassHeading();
-  yawAngle = getYawAngle();
+  if (gyroReadingTimer >= 50) {
+    gyroReadingTimer = 0;
+    gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+    yawRate = gyro.z();
+  }
+  
+  if (compassReadingTimer >= 200) {
+    compassReadingTimer = 0;
+    compassHeading = getCompassHeading();
+    yawAngle = getYawAngle();
+  }
+  
    
   while (Serial1.available())
      gps.encode(Serial1.read());
@@ -594,14 +640,13 @@ void loop() {
   if (mode != currentMode){
     resetOutputs();
     debugDataHeader();
-  
   }
   
   if (mode == 0){
     displayMode0();
-    
-    
   }
+
+
 //##############################################################################################
 //# Mode 1: Manual
 //##############################################################################################  
@@ -631,7 +676,7 @@ void loop() {
     else
     {
       speedSetting = 0;
-      goalAngle = yawAngle;
+      goalAngle = compassHeading;
       rightMotor = stopMotorValue;
       leftMotor = stopMotorValue; 
     }
@@ -640,7 +685,7 @@ void loop() {
       mode1started = true; 
       speedSetting=0; 
       resetYawOffset(); 
-      goalAngle = yawAngle; 
+      goalAngle = compassHeading; 
       memset(differenceList,0,memorySize) ;
       
     }
@@ -717,6 +762,7 @@ void loop() {
       //Put figure8 code here
       rightMotor = stopMotorValue;
       leftMotor = stopMotorValue; 
+      
     }
     else 
     {
@@ -732,7 +778,7 @@ void loop() {
 //##############################################################################################  
 //##############################################################################################  
 
-  else if (mode == 5){ //tune
+  else if (mode == 5){ //Full
     if (upButtonState && pushButtonState) mode5started = true;
     displayMode5();
     
@@ -762,12 +808,158 @@ void loop() {
    
     }
   }
+  
+
+
+
+//##############################################################################################
+//# Mode 6: Calibrate Compass
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+//##############################################################################################  
+
+  else if (mode == 6){ //Calibrate
+    if (upButtonState && pushButtonState) {
+      mode6started = true;
+      compass.enterCalMode();
+      delay(30);
+
+      totalTurn = 0;
+      lastAngle = compassHeading;
+      yawOffset = euler.x();
+      yawAngle = getYawAngle();
+      
+      rightMotor = maxRevMotorValue;
+      leftMotor = maxFwdMotorValue; 
+      
+      rightServo.write(rightMotor);
+      leftServo.write(leftMotor); 
+      delayTimer = 0;
+      while (delayTimer <1000){
+         while (Serial1.available()) gps.encode(Serial1.read());
+         sendCANmessages();  
+      }
+           
+    }
+
+    if (downButtonState && pushButtonState) {
+      compass.writeEEPROM(0x0A,0x00); //clear deviation
+      delay(10);
+      compass.writeEEPROM(0x0B,0x00);
+      delay(10);
+      compass.reset();
+        
+        delayTimer = 0;
+        while (delayTimer <500){
+          while (Serial1.available()) gps.encode(Serial1.read());
+          sendCANmessages();
+        }     
+    }
+
+    
+    displayMode6();
+    
+    if (mode6started) {
+
+      double deltaAngle = compassHeading - lastAngle;
+      lastAngle = compassHeading;
+      if (deltaAngle > 180) totalTurn += 360 - deltaAngle ;
+      else if (deltaAngle < -180) totalTurn += deltaAngle + 360;
+      else totalTurn += deltaAngle;
+      
+      if (abs(totalTurn) < 360)
+      {
+        rightMotor = maxRevMotorValue;
+        leftMotor = maxFwdMotorValue; 
+      }
+      else 
+      {
+        rightMotor = stopMotorValue;
+        leftMotor = stopMotorValue; 
+
+        rightServo.write(rightMotor);
+        leftServo.write(leftMotor); 
+        
+        strncpy(message,"Turn OK ",8);
+        txmsg.id=0x212; //sent to the lower right
+        for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+        CANbus.write(txmsg);
+        CANTXcount++;
+        delayTimer = 0;
+        while (delayTimer <1000){
+         while (Serial1.available()) gps.encode(Serial1.read());
+         sendCANmessages();  
+        }
+        compass.exitCalMode();
+        delay(50);
+        compass.exitStandby();
+
+        rightMotor = maxFwdMotorValue; 
+        leftMotor = maxFwdMotorValue; 
+
+        rightServo.write(rightMotor);
+        leftServo.write(leftMotor); 
+
+        delayTimer = 0;
+        while (delayTimer <10000){
+         while (Serial1.available()) gps.encode(Serial1.read());
+         sendCANmessages();
+        }
+
+        
+        strncpy(message,"Finished",8);
+        txmsg.id=0x212; //sent to the lower right
+        for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+        CANbus.write(txmsg);
+        CANTXcount++;
+        compass.writeEEPROM(0x0A,0x00); //clear deviation
+        delay(10);
+        compass.writeEEPROM(0x0B,0x00);
+        delay(10);
+        
+        compass.reset();
+        
+        delayTimer = 0;
+        while (delayTimer <500){
+          while (Serial1.available()) gps.encode(Serial1.read());
+          sendCANmessages();
+        }
+        
+        compass.readHeading();
+        
+        int  deviation = gps.course.deg()*10 - compass.heading; // Not sure if this is the correct deviation method.
+
+        compass.writeEEPROM(0x0A,lowByte(deviation)); //LSB of deviation
+        compass.writeEEPROM(0x0B,highByte(deviation)); //MSB of deviation
+        delay(50);
+        
+        compass.reset();
+        delayTimer = 0;
+        while (delayTimer <500){
+         while (Serial1.available()) gps.encode(Serial1.read());
+         sendCANmessages();
+        }
+        rightMotor = stopMotorValue;
+        leftMotor = stopMotorValue; 
+
+        rightServo.write(rightMotor);
+        leftServo.write(leftMotor); 
+        mode6started = false;
+      }
+   
+    }
+  }
+
+
+
+//////////////////////////////////////////////////Default  
   else
   {
     rightMotor = stopMotorValue;
     leftMotor = stopMotorValue;     
   }
-
 
 /////////////////////////////////////////////////////
   //always send the updates to the servos
@@ -783,6 +975,9 @@ void resetOutputs(){
   mode3started = false;
   mode4started = false;
   mode5started = false;
+  mode6started = false;
+
+  compass.exitStandby();
   
   tft.fillScreen(ILI9341_GREEN);
   delay(50);
@@ -815,13 +1010,13 @@ void displayMode0(){
     CANbus.write(txmsg);
     CANTXcount++;
 
-    sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+    sprintf(message,"H:%3i C:",int(gps.course.deg()));
     txmsg.id=0x221; //sent to the lower right
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
     CANTXcount++;
 
-    sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+    sprintf(message,"%3i S:%2i",int(compassHeading),int(gps.speed.mph()) );
     txmsg.id=0x222; //sent to the lower right
     for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
     CANbus.write(txmsg);
@@ -848,13 +1043,13 @@ void displayMode1(){
     CANTXcount++;
 
     if (mode1started){
-      sprintf(message,"G:%3i Y:",int(goalAngle));
+      sprintf(message,"G:%3i C:",int(goalAngle));
       txmsg.id=0x221; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
       CANTXcount++;
   
-      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      sprintf(message,"%3i S:%2i",int(compassHeading),int(gps.speed.mph()) );
       txmsg.id=0x222; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
@@ -895,13 +1090,13 @@ void displayMode2(){
     CANTXcount++;
     
     if (mode2started){
-      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      sprintf(message,"H:%3i C:",int(gps.course.deg()));
       txmsg.id=0x221; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
       CANTXcount++;
   
-      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      sprintf(message,"%3i S:%2i",int(compassHeading),int(gps.speed.mph()) );
       txmsg.id=0x222; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
@@ -944,13 +1139,13 @@ void displayMode3(){
     CANTXcount++;
 
     if (mode3started){
-      sprintf(message,"D:%3i Y:",int(distanceToFixPoint));
+      sprintf(message,"D:%3i C:",int(distanceToFixPoint));
       txmsg.id=0x221; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
       CANTXcount++;
   
-      sprintf(message,"%3i S%3.1f",int(yawAngle),goalSpeed);
+      sprintf(message,"%3i S%3.1f",int(compassHeading),goalSpeed);
       txmsg.id=0x222; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
@@ -994,13 +1189,13 @@ void displayMode4(){
     CANTXcount++;
     
     if (mode4started){
-      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      sprintf(message,"H:%3i C:",int(gps.course.deg()));
       txmsg.id=0x221; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
       CANTXcount++;
   
-      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      sprintf(message,"%3i S:%2i",int(compassHeading),int(gps.speed.mph()) );
       txmsg.id=0x222; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
@@ -1044,15 +1239,62 @@ void displayMode5(){
     CANTXcount++;
 
     if (mode5started){
-      sprintf(message,"H:%3i Y:",int(gps.course.deg()));
+      sprintf(message,"H:%3i C:",int(gps.course.deg()));
       txmsg.id=0x221; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
       CANbus.write(txmsg);
       CANTXcount++;
   
-      sprintf(message,"%3i S:%2i",int(yawAngle),int(gps.speed.mph()) );
+      sprintf(message,"%3i S:%2i",int(compassHeading),int(gps.speed.mph()) );
       txmsg.id=0x222; //sent to the lower right
       for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+    }
+    else
+    {
+      strncpy(message,"Butn+Up ",8);
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      strncpy(message,"to Start",8);
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++; 
+    }
+    
+  }
+}
+
+
+void displayMode6(){
+  if (mode6displaytimer >= 80){
+    mode6displaytimer = 0;
+    
+    sprintf(message,"%i Calib ",mode);
+    txmsg.id=0x211; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    sprintf(message,"Comp %3i",int(compassHeading));
+    txmsg.id=0x212; //sent to the lower right
+    for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+    CANbus.write(txmsg);
+    CANTXcount++;
+
+    if (mode6started){
+      sprintf(message,"Turn:%4i H:%4i",int(totalTurn),int(gps.course.deg()));
+      txmsg.id=0x221; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j];
+      CANbus.write(txmsg);
+      CANTXcount++;
+  
+      txmsg.id=0x222; //sent to the lower right
+      for (int j = 0;j<txmsg.len;j++) txmsg.buf[j] = message[j+8];
       CANbus.write(txmsg);
       CANTXcount++;
     }
@@ -1080,7 +1322,8 @@ void  calculateMotorOutput(){
     
   
 
-    difference = goalAngle - yawAngle;
+    difference = goalAngle - yawAngle; // using BNO055 as input
+    difference = goalAngle - compassHeading; //using compass for input
     if (difference <= -180)  difference += 360;
     if (difference >= 180)  difference -= 360;
 

@@ -16,7 +16,7 @@ MCP_CAN CAN0(10);
 byte joyMessage[8];
 byte mode;
 byte currentMode;
-byte numberOfModes = 6;
+byte numberOfModes = 7;
 
 //CAN interface messages (Borrowed from the example).
 long unsigned int rxId;
@@ -253,7 +253,7 @@ void readCANbus(){
    
   
     if (rxId == 0x210){ //Mode Message
-      //numberOfModes = rxBuf[0];
+      numberOfModes = rxBuf[0];
       lastRXTime = currentMillis;
       writeOnce=false;
       
