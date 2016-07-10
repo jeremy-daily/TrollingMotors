@@ -12,18 +12,18 @@
 
 //PID Gain Constants. Tune these for best results.
 double angleK = 4.8;
-double angleI = .004;
+double angleI = .1;
 double angleD = 4;
 
 double speedK = .1;
 double speedI = .01;
 double speedD = 0;
 
+double biasSetting = 1.0; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
 
-
-const int memorySize = 2000;
-int32_t differenceList[2000];
-int32_t differenceSpeedList[2000];
+const int memorySize = 1200.;
+int32_t differenceList[1200];
+int32_t differenceSpeedList[1200];
 
 const uint32_t deltaTms = 50; //milliseconds for calculations and output
 double deltaT = 0;
@@ -75,6 +75,7 @@ elapsedMillis compassReadingTimer;
 elapsedMillis gyroReadingTimer;
 elapsedMillis delayTimer;
 elapsedMillis sineSweepTimer;
+elapsedMillis anchorAdjustTimer;
 
 const int speedSetTime = 150; //set how quickly the speed changes.
 const int courseSetTime = 150; //set how quickly the speed changes.
@@ -632,8 +633,8 @@ void debugData() {
 double getCompassHeading() {
   compass.readHeading();
 
-  //tempHeading = compass.heading/10.0 - compassOffset; //local compass
-  tempHeading = CANheading - compassOffset; //CAN compass
+  tempHeading = compass.heading/10.0 - compassOffset; //local compass
+  //tempHeading = CANheading - compassOffset; //CAN compass
 
   if (tempHeading >= 360) tempHeading -= 360;
   if (tempHeading < 0) tempHeading += 360;
@@ -774,11 +775,34 @@ void loop() {
       resetCompassOffset();
       resetYawOffset();
     }
+    
 
     displayMode3();
-    distanceToFixPoint = gps.distanceBetween(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
-    courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
-    if (mode3started) {
+   if (mode3started) {
+      if (anchorAdjustTimer > 300){
+          anchorAdjustTimer = 0;
+          if (upButtonState ) {
+             fixPointLat +=  (10.0/111030.0)*sin(radians(compassHeading));
+             fixPointLon += (10.0/111030.0)*cos(radians(compassHeading));
+          }
+          else if (downButtonState ) {
+             fixPointLat -= (10.0/111030.0)*sin(radians(compassHeading));
+             fixPointLon -= (10.0/80000.0)*cos(radians(compassHeading));
+          }
+          if (leftButtonState ) {
+             fixPointLat += (10.0/111030.0)*cos(radians(compassHeading));
+             fixPointLon += (10.0/80000.0)*sin(radians(compassHeading));
+          }
+          else if (rightButtonState ) {
+             fixPointLat -= (10.0/111030.0)*cos(radians(compassHeading));
+             fixPointLon -= (10.0/80000.0)*sin(radians(compassHeading));
+          }
+      }
+   
+      
+      distanceToFixPoint = gps.distanceBetween(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
+      courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
+    
       goalAngle = courseToFixPoint;
       if (distanceToFixPoint > 5) {
 
@@ -826,16 +850,16 @@ void loop() {
   else if (mode == 5) { //Full
     if (upButtonState && pushButtonState) mode5started = true;
     displayMode5();
-
+    debugData();
     if (mode5started) {
       debugData();
       if (upButtonState) {
-        rightMotor = maxFwdMotorValue;
-        leftMotor = maxFwdMotorValue;
+        rightMotor = int( 0.8*maxFwdMotorValue * biasSetting);
+        leftMotor = int(0.8*maxFwdMotorValue);
       }
       else if (downButtonState) {
-        rightMotor = maxRevMotorValue;
-        leftMotor = maxRevMotorValue;
+        rightMotor = int(0.8*maxRevMotorValue) * biasSetting;
+        leftMotor = int(0.8*maxRevMotorValue);
       }
       else if (rightButtonState) {
         rightMotor = maxRevMotorValue;
@@ -867,6 +891,7 @@ void loop() {
   //##############################################################################################
 
   else if (mode == 6) { //Calibrate
+    debugData();
     if (upButtonState && pushButtonState) {
       mode6started = true;
       compass.enterCalMode();
@@ -889,8 +914,26 @@ void loop() {
       }
 
     }
-
-    if (downButtonState && pushButtonState) {
+    else if (upButtonState && !pushButtonState) {
+      if (gps.location.isUpdated() && gps.speed.mph()>2){
+      
+        compass.readHeading();
+        int  deviation = gps.course.deg() * 10 - compass.heading; // Not sure if this is the correct deviation method.
+        compass.writeEEPROM(0x0A, lowByte(deviation)); //LSB of deviation
+        delay(10);
+        compass.writeEEPROM(0x0B, highByte(deviation)); //MSB of deviation
+        delay(10);
+      
+        compass.reset();
+        delayTimer = 0;
+        while (delayTimer < 500) {
+          while (Serial1.available()) gps.encode(Serial1.read());
+          sendCANmessages();
+        }
+      }
+    }
+    else if (downButtonState && pushButtonState) {
+      
       compass.writeEEPROM(0x0A, 0x00); //clear deviation
       delay(10);
       compass.writeEEPROM(0x0B, 0x00);
@@ -902,6 +945,8 @@ void loop() {
         while (Serial1.available()) gps.encode(Serial1.read());
         sendCANmessages();
       }
+            
+      
     }
 
 
@@ -942,6 +987,11 @@ void loop() {
         delay(50);
         compass.exitStandby();
         
+        strncpy(message, "Forward ", 8);
+        txmsg.id = 0x212; //sent to the lower right
+        for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+        CANbus.write(txmsg);
+        
         resetCompassOffset();
         rightMotor = maxFwdMotorValue;
         leftMotor = maxFwdMotorValue;
@@ -953,6 +1003,11 @@ void loop() {
         while (delayTimer < 10000) {
           while (Serial1.available()) gps.encode(Serial1.read());
           sendCANmessages();
+          if (mode != 7) {//abort
+            resetOutputs();
+            break;
+          }
+          displayMode6();
         }
 
 
@@ -979,9 +1034,10 @@ void loop() {
         int  deviation = gps.course.deg() * 10 - compass.heading; // Not sure if this is the correct deviation method.
 
         compass.writeEEPROM(0x0A, lowByte(deviation)); //LSB of deviation
+        delay(10);
         compass.writeEEPROM(0x0B, highByte(deviation)); //MSB of deviation
-        delay(50);
-
+        delay(10);
+        
         compass.reset();
         delayTimer = 0;
         while (delayTimer < 500) {
@@ -1038,8 +1094,7 @@ void loop() {
         rightServo.write(rightMotor);
         leftServo.write(leftMotor);
 
-        if (downButtonState && pushButtonState) {//abort
-          mode7started = false;
+        if (mode != 7) {//abort
           resetOutputs();
           break;
         }
@@ -1055,7 +1110,7 @@ void loop() {
         displayData();
         displayMode7();
 
-        omega =  sineSweepTimer / 200000.0;
+        omega =  sineSweepTimer / 500000.0;
         motorInput = 50 * sin( 2 * omega * PI * sineSweepTimer / 1000.);
         rightMotor = stopMotorValue + 50 + int(motorInput);
         leftMotor = stopMotorValue + 50 - int(motorInput);
@@ -1063,8 +1118,7 @@ void loop() {
         rightServo.write(rightMotor);
         leftServo.write(leftMotor);
 
-        if (downButtonState && pushButtonState) { //abort
-          mode7started = false;
+        if (mode != 7) { //abort
           resetOutputs();
           break;
         }
@@ -1115,7 +1169,8 @@ void resetOutputs() {
   //reset the integrator
   memset(differenceList, 0, sizeof(differenceList)) ;
   memset(differenceSpeedList, 0, sizeof(differenceSpeedList)) ;
-
+  turnSetting = 0;
+  angleSetting = 0;
   rightMotor = stopMotorValue;
   leftMotor  = stopMotorValue;
 
@@ -1513,7 +1568,7 @@ void  calculateMotorOutput() {
 
     integral = double(sum) / 1000.0 * deltaT;
 
-    if (gps.satellites.value() > 4)
+    if (gps.location.isUpdated())
     {
       speedDifference = goalSpeed - gps.speed.mph();
 
@@ -1533,10 +1588,10 @@ void  calculateMotorOutput() {
     angleSetting = int(angleK * difference + angleI * integral + angleD * yawRate);
 
 
-    int tempRightMotor = speedSetting - turnSetting - angleSetting + stopMotorValue;
-    int tempLeftMotor  = speedSetting + turnSetting + angleSetting + stopMotorValue;
-    rightMotor = constrain(tempRightMotor, maxFwdMotorValue, maxRevMotorValue);
-    leftMotor  = constrain(tempLeftMotor, maxFwdMotorValue , maxRevMotorValue);
+    int tempRightMotor = int((speedSetting - turnSetting - angleSetting + stopMotorValue)* biasSetting);
+    int tempLeftMotor  = speedSetting + turnSetting + angleSetting + stopMotorValue ;
+    rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
+    leftMotor  = constrain(tempLeftMotor, maxRevMotorValue, maxFwdMotorValue);
 
 
     //print
