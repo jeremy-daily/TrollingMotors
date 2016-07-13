@@ -11,9 +11,14 @@
 #include <Servo.h>
 
 //PID Gain Constants. Tune these for best results.
+//double angleK = 4.8;
+//double angleI = .1;
+//double angleD = 4;
+
 double angleK = 4.8;
 double angleI = .1;
-double angleD = 4;
+double angleD = 8;
+
 
 double speedK = .1;
 double speedI = .01;
@@ -202,8 +207,8 @@ void setup() {
   bno.setMode(bno.OPERATION_MODE_AMG);//
 
   tft.print("Starting Srvo");
-  rightServo.attach(23);  // attaches the servo on pin 23 to the servo object
-  leftServo.attach(16);  // attaches the servo on pin 16 to the servo object
+  rightServo.attach(16);  // attaches the servo on pin 23 to the servo object
+  leftServo.attach(23);  // attaches the servo on pin 16 to the servo object
 
 
   tft.println("Starting GPS");
