@@ -65,20 +65,9 @@ Fuser ekf;
 
 
 //PID Gain Constants. Tune these for best results.
-<<<<<<< HEAD
 double angleK = 2;
 double angleI = .1;
 double angleD = 1;
-=======
-//double angleK = 4.8;
-//double angleI = .1;
-//double angleD = 4;
-
-double angleK = 4.8;
-double angleI = .1;
-double angleD = 8;
-
->>>>>>> origin/NavToWaypoint
 
 double speedK = .1;
 double speedI = .01;
@@ -512,18 +501,11 @@ void setup() {
   Serial.print("Starting Servos... ");    
   
   tft.print("Starting Srvo");
-<<<<<<< HEAD
   rightServo.attach(23);  // attaches the servo on pin 23 to the servo object
   leftServo.attach(16);  // attaches the servo on pin 16 to the servo object
   Serial.println("Done.");
  
   Serial.print("Starting GPS... ");
-=======
-  rightServo.attach(16);  // attaches the servo on pin 23 to the servo object
-  leftServo.attach(23);  // attaches the servo on pin 16 to the servo object
-
-
->>>>>>> origin/NavToWaypoint
   tft.println("Starting GPS");
   Serial1.begin(9600);
   delay(300);
@@ -732,7 +714,7 @@ void displayTemplate() {
   tft.print("Mode:X Sat:XX");
 
   tft.setCursor(0, 30);
-  tft.print("Comp Head:XXX");
+  tft.print("Heading:  XXX");
 
   tft.setCursor(0, 60);
   tft.print("CAN Angle:XXX");
@@ -790,7 +772,7 @@ void displayData() {
 
     tft.fillRect(180, 30, 60, 30, ILI9341_BLACK);
     tft.setCursor(180, 30);
-    sprintf(dispVal, "%3i", int(compassHeading));
+    sprintf(dispVal, "%3i", int(ekfYawAngle));
     tft.print(dispVal);
 
     tft.fillRect(180, 60, 60, 30, ILI9341_BLACK);
@@ -831,7 +813,7 @@ void displayData() {
 
     tft.fillRect(144, 270, 96, 30, ILI9341_BLACK);
     tft.setCursor(144, 270);
-    sprintf(dispVal, "%5.1f", yawRate);
+    sprintf(dispVal, "%5.1f", ekfYawRate);
     tft.print(dispVal);
   }
 }
@@ -859,13 +841,13 @@ void debugDataHeader() {
   Serial.print("\t");
   Serial.print("goalAngle");
   Serial.print("\t");
-  Serial.print("compassHeading");
+  Serial.print("ekfYawAngle");
   Serial.print("\t");
   Serial.print("difference");
   Serial.print("\t");
   Serial.print("integral");
   Serial.print("\t");
-  Serial.print("yawRate");
+  Serial.print("ekfYawRate");
   Serial.print("\t");
   Serial.print("angleSetting");
   Serial.print("\t");
@@ -909,13 +891,13 @@ void debugData() {
     Serial.print("\t");
     Serial.print(goalAngle);
     Serial.print("\t");
-    Serial.print(compassHeading);
+    Serial.print(ekfYawAngle);
     Serial.print("\t");
     Serial.print(difference, 3);
     Serial.print("\t");
     Serial.print(integral, 3);
     Serial.print("\t");
-    Serial.print(yawRate, 3);
+    Serial.print(ekfYawRate, 3);
     Serial.print("\t");
     Serial.print(angleSetting);
     Serial.print("\t");
@@ -988,29 +970,20 @@ void getMeasurements() {
     ekf.step(z);
 
     // Report measured and predicte/fused values
-    Serial.print(z[0],4);
+   /*erial.print(z[0],4);
     Serial.print("\t");
     Serial.print(ekf.getX(0),4);
     Serial.print("\t");
     Serial.print(z[1],4);
     Serial.print("\t");
-    Serial.println(ekf.getX(1),4);
+    Serial.println(ekf.getX(1),4);*/
+
+    
     ekfYawAngle = ekf.getX(0);
     ekfYawRate = ekf.getX(1);
     if (ekfYawAngle >= 360) ekfYawAngle -= 360;
     if (ekfYawAngle < 0)    ekfYawAngle += 360;
     ekf.setX(0,ekfYawAngle);
-
-/*Uncomment the lines below to get a stream of sensor data*/
-    
-//    Serial.print(compassHeading);
-//    Serial.print("\t");
-//    Serial.print(CANcompassHeading);
-//    Serial.print("\t");
-//    Serial.print(gps.speed.mph(),4);
-//    Serial.print("\t");
-//    Serial.println(yawRate,6);
-
   }
 
   //get user input
@@ -1064,8 +1037,14 @@ void loop() {
       }
       if (courseSettingTimer > courseSetTime) {
         courseSettingTimer = 0;
-        if (leftButtonState) goalAngle -= 1;
-        if (rightButtonState) goalAngle += 1;
+        if (leftButtonState){
+          goalAngle -= 1;
+          memset(differenceList, 0, sizeof(differenceList)) ;
+        }
+        if (rightButtonState) {
+          goalAngle += 1;
+          memset(differenceList, 0, sizeof(differenceList)) ;
+        }
         if (goalAngle > 360) goalAngle -= 360;
         if (goalAngle < 0   ) goalAngle += 360;
       }
