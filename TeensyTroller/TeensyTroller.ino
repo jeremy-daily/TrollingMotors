@@ -65,9 +65,20 @@ Fuser ekf;
 
 
 //PID Gain Constants. Tune these for best results.
+<<<<<<< HEAD
 double angleK = 2;
 double angleI = .1;
 double angleD = 1;
+=======
+//double angleK = 4.8;
+//double angleI = .1;
+//double angleD = 4;
+
+double angleK = 4.8;
+double angleI = .1;
+double angleD = 8;
+
+>>>>>>> origin/NavToWaypoint
 
 double speedK = .1;
 double speedI = .01;
@@ -501,11 +512,18 @@ void setup() {
   Serial.print("Starting Servos... ");    
   
   tft.print("Starting Srvo");
+<<<<<<< HEAD
   rightServo.attach(23);  // attaches the servo on pin 23 to the servo object
   leftServo.attach(16);  // attaches the servo on pin 16 to the servo object
   Serial.println("Done.");
  
   Serial.print("Starting GPS... ");
+=======
+  rightServo.attach(16);  // attaches the servo on pin 23 to the servo object
+  leftServo.attach(23);  // attaches the servo on pin 16 to the servo object
+
+
+>>>>>>> origin/NavToWaypoint
   tft.println("Starting GPS");
   Serial1.begin(9600);
   delay(300);
