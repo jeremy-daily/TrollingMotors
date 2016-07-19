@@ -3,21 +3,85 @@
 #include <kinetis_flexcan.h>
 #include "SPI.h"
 #include "ILI9341_t3.h"
+#include "BNO055.h"
 #include  <i2c_t3.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BNO055.h>
-#include <utility/imumaths.h>
 #include <SFE_HMC6343.h>
 #include <Servo.h>
+#include <EEPROM.h>
+
+// These must be defined before including TinyEKF.h
+#define N 2     // Two state values: yawAngle, yawRate
+#define M 2     // Three measurements: compassHeading, rateGyro,
+
+#include <TinyEKF.h>
+double deltaT = 0;
+
+
+class Fuser : public TinyEKF {
+
+    public:
+
+        Fuser()
+        {            
+            // We approximate the process noise using a small constant
+            this->setQ(0, 0, .0001);
+            this->setQ(1, 1, .0001);
+
+            // Same for measurement noise (MxM diagnonal matrix assumes no covariance)
+            this->setR(0, 0, 1.5);
+            this->setR(1, 1, .002);
+            
+        }
+
+    protected:
+
+        void model(double fx[N], double F[N][N], double hx[M], double H[M][N])
+        {
+            // Process model is f(x) = x
+            fx[0] = this->x[0] - this->x[1]*deltaT;
+            fx[1] = this->x[1];
+            
+
+            // So process model Jacobian is identity matrix
+            F[0][0] = 1; //df[0]/dx[0]
+            F[0][1] = deltaT; //df[0]/dx[1]
+            F[1][0] = 0; //df[1]/dx[0]
+            F[1][1] = 1; //df[1]/dx[1]
+
+            // Measurement function
+            hx[0] = this->x[0]; // Yaw Angle from previous state
+            hx[1] = this->x[1]; // yaw Rate from previous state
+           
+            // Jacobian of measurement function
+            H[0][0] = 1;       // Yaw Angle from previous state
+            H[1][1] = 1;       // yaw Rate from previous state
+           
+        }
+};
+
+Fuser ekf;
+
+
+
 
 //PID Gain Constants. Tune these for best results.
-double angleK = 4.8;
+double angleK = 2;
 double angleI = .1;
-double angleD = 4;
+double angleD = 1;
 
 double speedK = .1;
 double speedI = .01;
 double speedD = 0;
+
+double ekfYawAngle;
+double ekfYawRate;
+
+double gyroScaleFactor = 0.003814697265625; //Set to 125deg/s / 2^15
+double gyroOffset = -0.122513335; //Used to zero out the rate gyro when it is still. Uses a longterm average.
+
+double headingScaleFactor = 1; //
+double headingOffset = 0; //
+
 
 double biasSetting = 1.0; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
 
@@ -25,14 +89,19 @@ const int memorySize = 1200.;
 int32_t differenceList[1200];
 int32_t differenceSpeedList[1200];
 
+double yawAngleRaw; 
+
 const uint32_t deltaTms = 50; //milliseconds for calculations and output
-double deltaT = 0;
+
 double yawOffset = 0;
 double compassOffset = 0;
+double CANcompassOffset = 0;
 double initialYaw;
+boolean isCompassOffsetSet = false;
 
 double turnRate = 0.01;
 double CANheading;
+double CANcompassHeading;
 double headerValue;
 double headingReading;
 double totalTurn = 0;
@@ -77,8 +146,8 @@ elapsedMillis delayTimer;
 elapsedMillis sineSweepTimer;
 elapsedMillis anchorAdjustTimer;
 
-const int speedSetTime = 150; //set how quickly the speed changes.
-const int courseSetTime = 150; //set how quickly the speed changes.
+const int speedSetTime = 100; //set how quickly the speed changes.
+const int courseSetTime = 100; //set how quickly the speed changes.
 
 boolean mode1started = false;
 boolean mode2started = false;
@@ -138,8 +207,7 @@ SFE_HMC6343 compass; // Declare the sensor object
 Servo rightServo;  // create servo object to control a servo
 Servo leftServo;  // create servo object to control a servo
 
-int rightVal;    // variable to read the value from the analog pin
-int leftVal;    // variable to read the value from the analog pin
+
 
 //Set up CAN messaging
 FlexCAN CANbus(500000);
@@ -150,13 +218,216 @@ uint32_t ID = 0;
 char message[17] = "                "; //initialize with spaces
 
 // setup the IMU sensor
-Adafruit_BNO055 bno = Adafruit_BNO055();
-imu::Vector<3> euler;
-imu::Vector<3> gyro;
+//Adafruit_BNO055 bno = Adafruit_BNO055();
+//imu::Vector<3> euler;
+//imu::Vector<3> gyro;
 
 float yawAngle = 0.0;
 float yawRate = 0.0;
 float compassHeading = 0.0;
+
+
+byte BNOread(int reg){
+  Wire.beginTransmission(BNO055_ADDRESS);
+  Wire.write(uint8_t(reg));
+  Wire.endTransmission();
+  delay(10);
+  Wire.requestFrom(BNO055_ADDRESS, 1);
+  return Wire.read();
+}
+
+void BNOreadN(int reg, byte *dataBuffer, int len){
+  Wire.beginTransmission(BNO055_ADDRESS);
+  Wire.write(uint8_t(reg));
+  Wire.endTransmission();
+  delay(10);
+  Wire.requestFrom(BNO055_ADDRESS, len);
+  for (uint8_t i = 0; i < len; i++) dataBuffer[i] = Wire.read();
+}
+
+void BNOwrite(int reg, uint8_t val){
+  Wire.beginTransmission(BNO055_ADDRESS);
+  Wire.write(uint8_t(reg));
+  Wire.write(uint8_t(val));
+  Wire.endTransmission();
+}
+
+void getBNO055Status(void)
+{
+    /* Get the system status values (mostly for debugging purposes) */
+    char statusMessage[40];
+    
+    BNOwrite(BNO055_PAGE_ID_ADDR,0); // Set to page 0
+
+    uint8_t clock_select = BNOread(BNO055_SYS_TRIGGER_ADDR);
+    sprintf(statusMessage,"Clock Select Bit: 0x%02X ",clock_select);
+    Serial.print(statusMessage);
+    if ((clock_select & 0x80) >> 7) Serial.println(" External Clock Selected");
+    else Serial.println(" There seems to be a problem with the external clock.");
+
+    uint8_t operation_mode = BNOread(BNO055_OPR_MODE_ADDR);
+    sprintf(statusMessage,"Operation Mode: 0x%02X ",operation_mode);
+    Serial.print(statusMessage);
+    if      (operation_mode == 0) Serial.println(" CONFIG Mode");
+    else if (operation_mode == 1) Serial.println(" ACCEL ONLY Mode");
+    else if (operation_mode == 2) Serial.println(" MAG ONLY Mode");
+    else if (operation_mode == 3) Serial.println(" GYRO ONLY Mode");
+    else if (operation_mode == 4) Serial.println(" ACCMAG ONLY Mode");
+    else if (operation_mode == 5) Serial.println(" ACCGYRO ONLY Mode");
+    else if (operation_mode == 6) Serial.println(" MAGGYRO ONLY Mode");
+    else if (operation_mode == 7) Serial.println(" AMG Mode");
+    else if (operation_mode == 8) Serial.println(" IMU Fusion Mode");
+    else if (operation_mode == 9) Serial.println(" COMPASS Fusion Mode");
+    else if (operation_mode == 10) Serial.println(" M4G Fusion Mode");
+    else if (operation_mode == 11) Serial.println(" NDOF_FMC_OFF Fusion Mode");
+    else if (operation_mode == 12) Serial.println(" NDOF Fusion Mode");
+    else Serial.println(" There seems to be a problem with the Operation Mode");
+
+     
+    uint8_t self_test_result = BNOread(BNO055_SELFTEST_RESULT_ADDR);
+    sprintf(statusMessage,"Self Test Result: 0x%02X ",self_test_result);
+    Serial.print(statusMessage);
+    if (self_test_result == 0xf) Serial.println(" All systems passed the Self Test");
+    else Serial.println(" There seems to be a problem.");
+
+    uint8_t system_status    = BNOread(BNO055_SYS_STAT_ADDR);
+    sprintf(statusMessage,"System Status: 0x%02X ",system_status);
+    Serial.print(statusMessage);
+    if      (system_status == 0) Serial.println("System Idle");
+    else if (system_status == 1) Serial.println("System Error");
+    else if (system_status == 2) Serial.println("Initilaising peripherals");
+    else if (system_status == 3) Serial.println("System Initialization");
+    else if (system_status == 4) Serial.println("Executing Self Test");
+    else if (system_status == 5) Serial.println("Sensor Fusion Algorithm Running");
+    else if (system_status == 6) Serial.println("System running without fusion algorithm");
+    else Serial.println(" There seems to be a problem.");
+         
+    
+    if (system_status == 1){
+      uint8_t system_error     = BNOread(BNO055_SYS_ERR_ADDR);
+      sprintf(statusMessage,"System Error: 0x%02X ",system_error);
+      Serial.print(statusMessage);
+      if (system_error == 0) Serial.println(" All systems passed the Self Test");
+      else Serial.println(" There seems to be a problem with system status.");
+    }
+
+    uint8_t unit_selected    = BNOread(BNO055_UNIT_SEL_ADDR);
+    sprintf(statusMessage,"Unit Select: 0x%02X ",unit_selected);
+    Serial.println(statusMessage);
+    if (unit_selected & 1 == 0) Serial.println("Accelerations are in m/s/s.");
+    else Serial.println("Accelerations are in milli g.");
+    if ((unit_selected & 2) >> 1 == 0) Serial.println("Rate Gyro is in Degrees/Second.");
+    else Serial.println("Rate Gyro in Radians/Second.");
+    if ((unit_selected & 4) >> 2 == 0) Serial.println("Euler Angle is in Degrees.");
+    else Serial.println("Euler Angle is in Radians.");
+    if ((unit_selected & 0x10) >> 4 == 0) Serial.println("Temperature is in Celcius.");
+    else Serial.println("Temperature is in Farenheit.");
+
+    BNOwrite(BNO055_PAGE_ID_ADDR,1); // Set to page 1
+    
+    uint8_t gyro_config    = BNOread(GYRO_CONF_0);
+    sprintf(statusMessage,"Gyro Configuration 0: 0x%02X ",gyro_config);
+    Serial.println(statusMessage);
+    if      ((gyro_config & 0b0111) == 0) Serial.println("Gyro Range is 2000 dps.");
+    else if ((gyro_config & 0b0111) == 1) Serial.println("Gyro Range is 1000 dps.");
+    else if ((gyro_config & 0b0111) == 2) Serial.println("Gyro Range is 500 dps.");
+    else if ((gyro_config & 0b0111) == 3) Serial.println("Gyro Range is 250 dps.");
+    else if ((gyro_config & 0b0111) == 4) Serial.println("Gyro Range is 125 dps.");
+    else Serial.println("There is something wrong with the Gyro Range reading.");
+    
+    if      ((gyro_config & 0b0111000)>>3 == 0) Serial.println("Gyro Bandwidth is 523 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 1) Serial.println("Gyro Bandwidth is 230 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 2) Serial.println("Gyro Bandwidth is 116 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 3) Serial.println("Gyro Bandwidth is 47 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 4) Serial.println("Gyro Bandwidth is 23 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 5) Serial.println("Gyro Bandwidth is 12 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 6) Serial.println("Gyro Bandwidth is 64 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 7) Serial.println("Gyro Bandwidth is 32 Hz.");
+    else Serial.println("There is something wrong with the Gyro Bandwidth reading.");
+
+
+    uint8_t mag_config    = BNOread(MAG_CONF);
+    sprintf(statusMessage,"Magentometer Configuration: 0x%02X ",mag_config);
+    Serial.println(statusMessage);
+    Serial.print("Magnetometer Output Data Rate is ");
+    if      ((mag_config & 0b0111) == 0) Serial.println("2 Hz.");
+    else if ((mag_config & 0b0111) == 1) Serial.println("6 Hz.");
+    else if ((mag_config & 0b0111) == 2) Serial.println("8 Hz.");
+    else if ((mag_config & 0b0111) == 3) Serial.println("10 Hz.");
+    else if ((mag_config & 0b0111) == 4) Serial.println("15 Hz.");
+    else if ((mag_config & 0b0111) == 5) Serial.println("20 Hz.");
+    else if ((mag_config & 0b0111) == 6) Serial.println("25 Hz.");
+    else if ((mag_config & 0b0111) == 7) Serial.println("30 Hz.");
+    else Serial.println("XX. There is something wrong with the Magnetometer data output reading.");
+
+    Serial.print("Magnetometer Operation Mode is ");
+    if      ((mag_config & 0b011000)>>3 == 0) Serial.println("Low Power");
+    else if ((mag_config & 0b011000)>>3 == 1) Serial.println("Regular");
+    else if ((mag_config & 0b011000)>>3 == 2) Serial.println("Enhanced Regular");
+    else if ((mag_config & 0b011000)>>3 == 3) Serial.println("High Accuracy");
+    else Serial.println("XX. There is something wrong with the Magnetometer data output reading.");
+    
+    uint8_t accel_config    = BNOread(ACC_CONF);
+    sprintf(statusMessage,"Accelerometer Configuration: 0x%02X ",accel_config);
+    Serial.println(statusMessage);
+    Serial.print("Accelerometer G Range is ");
+    if      ((accel_config & 0b011) == 0) Serial.println("2 G.");
+    else if ((accel_config & 0b011) == 1) Serial.println("4 G.");
+    else if ((accel_config & 0b011) == 2) Serial.println("8 G.");
+    else if ((accel_config & 0b011) == 3) Serial.println("16 G.");
+    else Serial.println("XX. There is something wrong with the Accelerometer G Range reading.");
+
+    Serial.print("Accelerometer Bandwidth is ");
+    if      ((accel_config & 0b011100)>>2 == 0) Serial.println("7.81 Hz.");
+    else if ((accel_config & 0b011100)>>2 == 1) Serial.println("15.63 Hz");
+    else if ((accel_config & 0b011100)>>2 == 2) Serial.println("31.25 Hz");
+    else if ((accel_config & 0b011100)>>2 == 3) Serial.println("62.5 Hz");
+    else if ((accel_config & 0b011100)>>2 == 4) Serial.println("125 Hz");
+    else if ((accel_config & 0b011100)>>2 == 5) Serial.println("250 Hz");
+    else if ((accel_config & 0b011100)>>2 == 6) Serial.println("500 Hz");
+    else if ((accel_config & 0b011100)>>2 == 7) Serial.println("1000 Hz");
+    else Serial.println("XX. There is something wrong with the Accelerometer Bandwidth reading.");
+ 
+    BNOwrite(BNO055_PAGE_ID_ADDR,0); // Set back to page 0
+
+    uint8_t calibraton_status    = BNOread(BNO055_CALIB_STAT_ADDR);
+    sprintf(statusMessage,"Calibration Status: 0x%02X ",calibraton_status);
+    Serial.println(statusMessage);
+    Serial.print("System Calibration is  ");
+    if      ((calibraton_status & 0b11000000)>>6 == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b11000000)>>6 == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    Serial.print("Gyro Calibration is  ");
+    if      ((calibraton_status & 0b00110000)>>4 == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b00110000)>>4 == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    Serial.print("Accelerometer Calibration is  ");
+    if      ((calibraton_status & 0b00001100)>>2 == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b00001100)>>2 == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    Serial.print("Magentometer Calibration is  ");
+    if      ((calibraton_status & 0b00000011) == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b00000011) == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    
+}
+
+void BNOgetYawRate(){
+  byte gyroMSB = BNOread(BNO055_GYRO_DATA_Z_MSB_ADDR);
+  byte gyroLSB = BNOread(BNO055_GYRO_DATA_Z_LSB_ADDR);
+  int16_t tempGyro = word(gyroMSB,gyroLSB);
+  yawRate = tempGyro * gyroScaleFactor + gyroOffset; //This is from 125 deg/second range 125/2^15 and subtracting off an average
+  //Serial.println(yawRate,8);
+}
+
+void BNOgetYawAngle(){
+  byte eulerMSB = BNOread(BNO055_EULER_H_MSB_ADDR);
+  byte eulerLSB = BNOread(BNO055_EULER_H_LSB_ADDR);
+  int16_t tempEuler = word(eulerMSB,eulerLSB);
+  yawAngle = tempEuler * headingScaleFactor + headingOffset; //This is from 125 deg/second range 125/2^15 and subtracting off an average
+  //Serial.println(yawRate,8);
+}
+
 
 void setup() {
 
@@ -168,61 +439,112 @@ void setup() {
   tft.setTextColor(ILI9341_YELLOW);
   tft.setTextSize(3);
   tft.print("Setting Up...");
-
+  Serial.println("Welcome to the Teensy Troller. We will get setup first.");
+  
   tft.println("Starting IMU");
-  /* Initialise the sensor */
-  //  Wire.begin();
-  //  Wire.beginTransmission(0x28);
-  //  Wire.write(0x3F);
-  //  Wire.write(0x20);
-  //  Wire.endTransmission();
-  bno.begin();
-  bno.setExtCrystalUse(true);
-
-  bno.setMode(bno.OPERATION_MODE_CONFIG);
-
-  Wire.beginTransmission(BNO055_ADDRESS_A);
-  Wire.write(uint8_t(0x07)); //Page ID
-  Wire.write(uint8_t(0x01)); // Set to page 1
-  Wire.endTransmission();
+  Serial.print("Starting Bosch BNO055 IMU Sensor... ");
+  Wire.begin();
+  BNOwrite(BNO055_OPR_MODE_ADDR,OPERATION_MODE_CONFIG); //Set to configuration Mode
   delay(10);
-
-  Wire.beginTransmission(BNO055_ADDRESS_A);
-  Wire.write(uint8_t(0x0A)); //Gyro config
-  Wire.write(uint8_t(0b00100100)); // Set gyroscope to 125deg/s at 23Hz (see pg 28 of datasheet)
-  Wire.endTransmission();
+  Serial.println("Done.");
+  
+  // Set to use external oscillator
+  Serial.print("Setting up for External oscillator... ");
+  if(BNOread(BNO055_SYS_CLK_STAT_ADDR) == 0){
+    BNOwrite(BNO055_SYS_TRIGGER_ADDR,0b10000000); 
+    Serial.println("BNO055 set to use external oscillator");
+  }
+  else
+  {
+    BNOwrite(BNO055_SYS_TRIGGER_ADDR,0b10000000);
+    Serial.println("Problem setting BNO055 to use external oscillator.");
+  }
   delay(10);
-
-  Wire.beginTransmission(BNO055_ADDRESS_A);
-  Wire.write(uint8_t(0x07)); //Page ID
-  Wire.write(uint8_t(0x00)); // Set to page 1
-  Wire.endTransmission();
+  
+  Serial.print("Setting up Rate Gyro... ");
+  BNOwrite(BNO055_PAGE_ID_ADDR,1); // Set to page 1
   delay(10);
+  BNOwrite(GYRO_CONF_0,0b00101100);  // Set gyroscope to 125deg/s at 23Hz (see pg 28 of datasheet)
+  delay(10);
+  BNOwrite(GYRO_CONF_1,0);  // Set gyroscope  (see pg 28 of datasheet)
+  delay(10);
+  Serial.println("Done.");
 
-  bno.setMode(bno.OPERATION_MODE_AMG);//
+  Serial.print("Setting up Magnetometer... ");
+  BNOwrite(MAG_CONF,0b00011001);  // 
+  delay(10);
+  Serial.println("Done.");
 
+  Serial.print("Setting up Accelerometer... ");
+  BNOwrite(ACC_CONF,0);  // 
+  delay(10);
+  Serial.println("Done.");
+
+  Serial.print("Setting up Units... ");
+  BNOwrite(BNO055_PAGE_ID_ADDR,0); // Set to page 0
+  delay(10);
+  BNOwrite(BNO055_UNIT_SEL_ADDR,0b00010000); // Set units to M/s^2 Deg/sec, Deg, Deg F
+  delay(10);
+  Serial.println("Done.");
+
+  Serial.print("Turning on Sensors... ");
+  BNOwrite(BNO055_OPR_MODE_ADDR,OPERATION_MODE_AMG);//
+  //BNOwrite(BNO055_OPR_MODE_ADDR,OPERATION_MODE_NDOF);//
+  Serial.println("Done.");
+
+  Serial.println("Verifying BNO055 Settings...");
+  getBNO055Status();
+  Serial.println("Done.");
+  
+  
+
+  Serial.print("Starting Servos... ");    
+  
   tft.print("Starting Srvo");
   rightServo.attach(23);  // attaches the servo on pin 23 to the servo object
   leftServo.attach(16);  // attaches the servo on pin 16 to the servo object
-
-
+  Serial.println("Done.");
+ 
+  Serial.print("Starting GPS... ");
   tft.println("Starting GPS");
   Serial1.begin(9600);
+  delay(300);
+  Serial1.println("$PMTK251,57600*2C"); //Set Baud Rate to 57600
+  delay(100);
+  Serial1.flush();
+  Serial1.end();
+  Serial.println("Setting GPS to 57600 baud... ");
+  Serial1.begin(57600);
+  //delay(300);
+  Serial1.println("$PMTK251,57600*2C"); //Set Baud Rate to 57600
 
+  Serial.println("Setting GPS to update at 5 Hz... ");
+  Serial1.println("$PMTK220,200*2C"); //update at 5 Hz
+  delay(100);
+  Serial1.println("$PMTK300,200,0,0,0,0*2F"); //position fix update to 5 Hz
+  for (int i = 0;i<100;i++){
+    if (Serial1.available()) Serial.write(Serial1.read());
+  }
+  Serial.println("\nDone.");
+  
+
+  Serial.println("Starting Compass... ");
   tft.print("Starting Comp");
   compass.init();
   byte bSN_LSB = compass.readEEPROM(SN_LSB);
   byte bSN_MSB = compass.readEEPROM(SN_MSB);
   tft.print("S/N:");
   tft.println(word(bSN_MSB, bSN_LSB));
-  compass.writeEEPROM(0x14, 0x04); //Set filter to 4.
+  Serial.print("Compass Serial Number: ");
+  Serial.println(word(bSN_MSB, bSN_LSB));
+  compass.writeEEPROM(0x14, 0x00); //Set filter to 0.
   compass.exitStandby();
-
+  delay(100);
+  Serial.println("\nDone.");
+  
   tft.println("Starting CAN");
   delay(100);
   CANbus.begin();
-
-
 
   strncpy(message, "Fishing ", 8);
   txmsg.id = 0x211; //Send to the upper left
@@ -255,58 +577,44 @@ void setup() {
 
   tft.print("CAN msgs sent");
 
-  compass.readHeading();
-  yawOffset = compass.heading / 10.0 - compassOffset;
-
+  
   delay(1000);
-
+  compassHeading = getCompassHeading();
+  ekf.setX(0,compassHeading);
   deltaT = double(deltaTms) / 1000.0;
 
-  displayTemplate();
+  displayTemplate(); //tft display
 }
 
 void resetCompassOffset() {
-  if (gps.speed.mph() > 1.0 && abs(yawRate) < 1.0 ) //compass heading can be realigned to velocity vector
+  if (gps.speed.mph() > 5.0 && abs(yawRate) < 3.0 ) //compass heading can be realigned to velocity vector
   {
     if (gps.course.deg() >= 270 && compass.heading / 10.0 <= 90)
     {
-     // compassOffset = gps.course.deg() - compass.heading / 10.0 + 360;
-      compassOffset = gps.course.deg() - CANheading + 360;
+      compassOffset = gps.course.deg() - compass.heading / 10.0 + 360;
+      CANcompassOffset = gps.course.deg() - CANheading + 360;
     }
     else if (gps.course.deg() <= 90 && compass.heading / 10.0 >= 270)
     {
       compassOffset = gps.course.deg() - compass.heading / 10.0 - 360;
-      compassOffset = gps.course.deg() - CANheading - 360;
+      CANcompassOffset = gps.course.deg() - CANheading - 360;
     }
     else
     {
-      //compassOffset = gps.course.deg() - compass.heading / 10.0;
-      compassOffset = gps.course.deg() - CANheading;
+      compassOffset = gps.course.deg() - compass.heading / 10.0;
+      CANcompassOffset = gps.course.deg() - CANheading;
     }
+    Serial.print("Setting Compass Offsets Based on GPS heading: compassOffset = ");
+    Serial.print(compassOffset);
+    Serial.print(", CANcompassOffset = ");
+    Serial.println(CANcompassOffset);
+    isCompassOffsetSet = true;
+    
 
-  }
-  else
-  {
-    compassOffset = 0; // this is the constant angle of misalignment of the sensor and the boat.
   }
 }
 
-void resetYawOffset() {
-  compassHeading = getCompassHeading();
 
-  if (compassHeading >= 270 && euler.x() <= 90)
-  {
-    yawOffset = euler.x() - compassHeading -  + 360;
-  }
-  else if (compassHeading <= 90 && euler.x() >= 270)
-  {
-    yawOffset = euler.x() - compassHeading - 360;
-  }
-  else
-  {
-    yawOffset = euler.x() - compassHeading;
-  }
-}
 
 
 void make90rightWaypoints() {
@@ -409,7 +717,7 @@ void displayTemplate() {
   tft.print("Comp Head:XXX");
 
   tft.setCursor(0, 60);
-  tft.print("Yaw Angle:XXX");
+  tft.print("CAN Angle:XXX");
 
   tft.setCursor(0, 90);
   tft.print("GPS Headn:XXX");
@@ -469,7 +777,7 @@ void displayData() {
 
     tft.fillRect(180, 60, 60, 30, ILI9341_BLACK);
     tft.setCursor(180, 60);
-    sprintf(dispVal, "%3i", int(yawAngle));
+    sprintf(dispVal, "%3i", int(CANcompassHeading));
     tft.print(dispVal);
 
     tft.fillRect(180, 90, 60, 30, ILI9341_BLACK);
@@ -555,7 +863,7 @@ void debugDataHeader() {
   Serial.print("\t");
   Serial.print("gps.course.deg()");
   Serial.print("\t");
-  Serial.print("yawAngle");
+  Serial.print("CANcompassHeading");
   Serial.print("\t");
   Serial.print("sats");
   Serial.print("\t");
@@ -605,7 +913,7 @@ void debugData() {
     Serial.print("\t");
     Serial.print(gps.course.deg());
     Serial.print("\t");
-    Serial.print(yawAngle);
+    Serial.print(CANcompassHeading);
     Serial.print("\t");
     Serial.print(gps.satellites.value());
     Serial.print("\t");
@@ -632,18 +940,18 @@ void debugData() {
 
 double getCompassHeading() {
   compass.readHeading();
-
   tempHeading = compass.heading/10.0 - compassOffset; //local compass
-  //tempHeading = CANheading - compassOffset; //CAN compass
+  CANcompassHeading = CANheading - CANcompassOffset;
 
-  if (tempHeading >= 360) tempHeading -= 360;
-  if (tempHeading < 0) tempHeading += 360;
+  if (ekfYawAngle > 270 && tempHeading < 90) tempHeading += 360;
+  if (ekfYawAngle < 90 && tempHeading > 270) tempHeading -= 360;
+  
   return tempHeading;
 }
 
 double getYawAngle() {
-  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-  double tempyawAngle = euler.x() - yawOffset;
+  //euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+  double tempyawAngle = yawAngleRaw - yawOffset;
   while (tempyawAngle >= 360) tempyawAngle -= 360;
   while (tempyawAngle < 0) tempyawAngle += 360;
   return tempyawAngle;
@@ -653,14 +961,38 @@ void getMeasurements() {
   //measure stuff
   if (gyroReadingTimer >= deltaTms) {
     gyroReadingTimer = 0;
-    gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-    yawRate = gyro.z();
-  }
 
-  if (compassReadingTimer >= 200) {
-    compassReadingTimer = 0;
+    BNOgetYawRate();
     compassHeading = getCompassHeading();
-    yawAngle = getYawAngle();
+
+    // Send these measurements to the EKF
+    double z[M] = {compassHeading, yawRate};
+    ekf.step(z);
+
+    // Report measured and predicte/fused values
+    Serial.print(z[0],4);
+    Serial.print("\t");
+    Serial.print(ekf.getX(0),4);
+    Serial.print("\t");
+    Serial.print(z[1],4);
+    Serial.print("\t");
+    Serial.println(ekf.getX(1),4);
+    ekfYawAngle = ekf.getX(0);
+    ekfYawRate = ekf.getX(1);
+    if (ekfYawAngle >= 360) ekfYawAngle -= 360;
+    if (ekfYawAngle < 0)    ekfYawAngle += 360;
+    ekf.setX(0,ekfYawAngle);
+
+/*Uncomment the lines below to get a stream of sensor data*/
+    
+//    Serial.print(compassHeading);
+//    Serial.print("\t");
+//    Serial.print(CANcompassHeading);
+//    Serial.print("\t");
+//    Serial.print(gps.speed.mph(),4);
+//    Serial.print("\t");
+//    Serial.println(yawRate,6);
+
   }
 
   //get user input
@@ -669,11 +1001,15 @@ void getMeasurements() {
 
 
   while (Serial1.available())
-    gps.encode(Serial1.read());
+  {
+    char c = Serial1.read();
+    //Serial.print(c); //used for debugging
+    gps.encode(c);
+  }
 }
 
 void loop() {
-
+  
   getMeasurements();
 
   //send stuff
@@ -730,7 +1066,7 @@ void loop() {
     if (upButtonState && pushButtonState) {
       mode1started = true;
       speedSetting = 0;
-      resetYawOffset();
+      ////resetYawOffset()
       goalAngle = compassHeading;
       memset(differenceList, 0, sizeof(differenceList)) ;
 
@@ -773,7 +1109,7 @@ void loop() {
       fixPointLat = gps.location.lat();
       fixPointLon = gps.location.lng();
       resetCompassOffset();
-      resetYawOffset();
+      ////resetYawOffset()
     }
     
 
@@ -899,7 +1235,7 @@ void loop() {
 
       totalTurn = 0;
       lastAngle = compassHeading;
-      yawOffset = euler.x();
+      yawOffset = yawAngleRaw;
       yawAngle = getYawAngle();
 
       rightMotor = maxRevMotorValue;
@@ -1552,8 +1888,9 @@ void  calculateMotorOutput() {
 
 
     // difference = goalAngle - yawAngle; // using BNO055 as input
+    
 
-    difference = goalAngle - compassHeading; //using compass for input
+    difference = goalAngle - ekfYawAngle; //using compass for input
     if (difference <= -180)  difference += 360;
     if (difference >= 180)  difference -= 360;
 
@@ -1585,7 +1922,7 @@ void  calculateMotorOutput() {
 
     }
 
-    angleSetting = int(angleK * difference + angleI * integral + angleD * yawRate);
+    angleSetting = int(angleK * difference + angleI * integral + angleD * ekfYawRate);
 
 
     int tempRightMotor = int((speedSetting - turnSetting - angleSetting + stopMotorValue)* biasSetting);
