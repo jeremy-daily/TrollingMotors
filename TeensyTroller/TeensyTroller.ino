@@ -109,9 +109,9 @@ double headingOffset = 0; //
 
 double biasSetting = 1.0; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
 
-const int memorySize = 1200.;
-int32_t differenceList[1200];
-int32_t differenceSpeedList[1200];
+const int memorySize = 2400.;
+int32_t differenceList[2400];
+int32_t differenceSpeedList[2400];
 
 double accelX = 0;
 
@@ -430,6 +430,21 @@ void setup() {
   deltaT = double(deltaTms) / 1000.0;
 
   displayTemplate(); //tft display
+  Serial.print("Compass");
+  Serial.print("\t");
+  Serial.print("ekfCompass");
+  Serial.print("\t");
+  Serial.print("rateGyro");
+  Serial.print("\t");
+  Serial.print("ekfRateGyro");
+  Serial.print("GPSspeed");
+  Serial.print("\t");
+  Serial.print("ekfSpeed");
+  Serial.print("\t");
+  Serial.print("Accel");
+  Serial.print("\t");
+  Serial.println("ekfAccel");
+    
 }
 
 void resetCompassOffset() {
@@ -818,13 +833,7 @@ void getMeasurements() {
     ekf.step(z);
 
     // Report measured and predicte/fused values
-   /*erial.print(z[0],4);
-    Serial.print("\t");
-    Serial.print(ekf.getX(0),4);
-    Serial.print("\t");
-    Serial.print(z[1],4);
-    Serial.print("\t");
-    Serial.println(ekf.getX(1),4);*/
+    
 
     
     ekfYawAngle = ekf.getX(0);
@@ -832,13 +841,20 @@ void getMeasurements() {
     ekfSpeed = ekf.getX(2);
     ekfAccel = ekf.getX(3);
     
-    Serial.print(z[2],4);
-    Serial.print("\t");
-    Serial.print(ekf.getX(2),4);
-    Serial.print("\t");
-    Serial.print(z[3],4);
-    Serial.print("\t");
-    Serial.println(ekf.getX(3),4);;
+//    Serial.print(z[0],4);
+//    Serial.print("\t");
+//    Serial.print(ekf.getX(0),4);
+//    Serial.print("\t");
+//    Serial.print(z[1],4);
+//    Serial.print("\t");
+//    Serial.print(ekf.getX(1),4);
+//    Serial.print(z[2],4);
+//    Serial.print("\t");
+//    Serial.print(ekf.getX(2),4);
+//    Serial.print("\t");
+//    Serial.print(z[3],4);
+//    Serial.print("\t");
+//    Serial.println(ekf.getX(3),4);;
     
 
     if (ekfYawAngle >= 360) ekfYawAngle -= 360;
@@ -900,10 +916,12 @@ void loop() {
         if (leftButtonState){
           goalAngle -= 1;
           memset(differenceList, 0, sizeof(differenceList)) ;
+          turnSetting = -50;
         }
         if (rightButtonState) {
           goalAngle += 1;
           memset(differenceList, 0, sizeof(differenceList)) ;
+          turnSetting = 50;
         }
         if (goalAngle > 360) goalAngle -= 360;
         if (goalAngle < 0   ) goalAngle += 360;
