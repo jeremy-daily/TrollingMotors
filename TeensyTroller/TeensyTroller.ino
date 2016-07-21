@@ -11,7 +11,7 @@
 
 //PID Gain Constants. Tune these for best results.
 double angleK = 4;
-double angleI = .2;
+double angleI = .3;
 double angleD = 25;
 
 double speedK = .1;
@@ -107,7 +107,7 @@ double headingScaleFactor = 1; //
 double headingOffset = 0; //
 
 
-double biasSetting = 1.0; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
+double biasSetting = 1.05; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
 
 const int memorySize = 2400.;
 int32_t differenceList[2400];
@@ -170,8 +170,8 @@ elapsedMillis delayTimer;
 elapsedMillis sineSweepTimer;
 elapsedMillis anchorAdjustTimer;
 
-const int speedSetTime = 100; //set how quickly the speed changes.
-const int courseSetTime = 100; //set how quickly the speed changes.
+const int speedSetTime = 150; //set how quickly the speed changes.
+const int courseSetTime = 150; //set how quickly the speed changes.
 
 boolean mode1started = false;
 boolean mode2started = false;
@@ -347,8 +347,8 @@ void setup() {
   Serial.print("Starting Servos... ");    
   
   tft.print("Starting Srvo");
-  rightServo.attach(23);  // attaches the servo on pin 23 to the servo object
-  leftServo.attach(16);  // attaches the servo on pin 16 to the servo object
+  rightServo.attach(16);  // attaches the servo on pin 16 to the servo object
+  leftServo.attach(23);  // attaches the servo on pin 23 to the servo object
   Serial.println("Done.");
  
   Serial.print("Starting GPS... ");
@@ -903,7 +903,7 @@ void loop() {
     displayMode1();
 
     if (mode1started) {
-
+      if (!rightButtonState && !leftButtonState) turnSetting = 0;
       if (speedSettingTimer > speedSetTime) {
         speedSettingTimer = 0;
         if (upButtonState) goalSpeed += 0.1; //mph
@@ -923,6 +923,8 @@ void loop() {
           memset(differenceList, 0, sizeof(differenceList)) ;
           turnSetting = 50;
         }
+        
+        
         if (goalAngle > 360) goalAngle -= 360;
         if (goalAngle < 0   ) goalAngle += 360;
       }
