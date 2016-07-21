@@ -1,3 +1,7 @@
+#include  <i2c_t3.h>
+
+const double AccelXOffset = 0.298012168 ;
+
 //Bosch Sensortec BNO055 Definitions
 //The following definitions are from the BNO055 Datasheet
 #define BNO055_ADDRESS                                   0x28
@@ -188,3 +192,215 @@
 #define REMAP_SIGN_P5                                    0x01
 #define REMAP_SIGN_P6                                    0x07
 #define REMAP_SIGN_P7                                    0x05
+
+double yawRate = 0.0;
+double yawAngle = 0.0;
+ 
+byte BNOread(int reg){
+  Wire.beginTransmission(BNO055_ADDRESS);
+  Wire.write(uint8_t(reg));
+  Wire.endTransmission();
+  delay(10);
+  Wire.requestFrom(BNO055_ADDRESS, 1);
+  return Wire.read();
+}
+
+void BNOreadN(int reg, byte *dataBuffer, int len){
+  Wire.beginTransmission(BNO055_ADDRESS);
+  Wire.write(uint8_t(reg));
+  Wire.endTransmission();
+  delay(10);
+  Wire.requestFrom(BNO055_ADDRESS, len);
+  for (uint8_t i = 0; i < len; i++) dataBuffer[i] = Wire.read();
+}
+
+void BNOwrite(int reg, uint8_t val){
+  Wire.beginTransmission(BNO055_ADDRESS);
+  Wire.write(uint8_t(reg));
+  Wire.write(uint8_t(val));
+  Wire.endTransmission();
+}
+
+void BNOgetYawRate(){
+  byte gyroMSB = BNOread(BNO055_GYRO_DATA_Z_MSB_ADDR);
+  byte gyroLSB = BNOread(BNO055_GYRO_DATA_Z_LSB_ADDR);
+  int16_t tempGyro = word(gyroMSB,gyroLSB);
+  yawRate = tempGyro * gyroScaleFactor + gyroOffset; //This is from 125 deg/second range 125/2^15 and subtracting off an average
+  //Serial.println(yawRate,8);
+}
+
+void BNOgetYawAngle(){
+  byte eulerMSB = BNOread(BNO055_EULER_H_MSB_ADDR);
+  byte eulerLSB = BNOread(BNO055_EULER_H_LSB_ADDR);
+  int16_t tempEuler = word(eulerMSB,eulerLSB);
+  yawAngle = tempEuler * headingScaleFactor + headingOffset; //This is from 125 deg/second range 125/2^15 and subtracting off an average
+  //Serial.println(yawRate,8);
+}
+
+double BNOgetAccelX(){
+  byte accelMSB = BNOread(BNO055_ACCEL_DATA_Y_MSB_ADDR ); //Change these to match the compass in the teensy troller
+  byte accelLSB = BNOread(BNO055_ACCEL_DATA_Y_LSB_ADDR );
+  int16_t tempAccel= word(accelMSB,accelLSB);
+  return  double(tempAccel)/1000.0 - AccelXOffset  ; //; //in milligs Change this offset
+  
+}
+
+uint8_t getBNO055Status(void)
+{
+    /* Get the system status values (mostly for debugging purposes) */
+    char statusMessage[40];
+    
+    BNOwrite(BNO055_PAGE_ID_ADDR,0); // Set to page 0
+
+    uint8_t clock_select = BNOread(BNO055_SYS_TRIGGER_ADDR);
+    sprintf(statusMessage,"Clock Select Bit: 0x%02X ",clock_select);
+    Serial.print(statusMessage);
+    if ((clock_select & 0x80) >> 7) Serial.println(" External Clock Selected");
+    else Serial.println(" There seems to be a problem with the external clock.");
+
+    uint8_t operation_mode = BNOread(BNO055_OPR_MODE_ADDR);
+    sprintf(statusMessage,"Operation Mode: 0x%02X ",operation_mode);
+    Serial.print(statusMessage);
+    if      (operation_mode == 0) Serial.println(" CONFIG Mode");
+    else if (operation_mode == 1) Serial.println(" ACCEL ONLY Mode");
+    else if (operation_mode == 2) Serial.println(" MAG ONLY Mode");
+    else if (operation_mode == 3) Serial.println(" GYRO ONLY Mode");
+    else if (operation_mode == 4) Serial.println(" ACCMAG ONLY Mode");
+    else if (operation_mode == 5) Serial.println(" ACCGYRO ONLY Mode");
+    else if (operation_mode == 6) Serial.println(" MAGGYRO ONLY Mode");
+    else if (operation_mode == 7) Serial.println(" AMG Mode");
+    else if (operation_mode == 8) Serial.println(" IMU Fusion Mode");
+    else if (operation_mode == 9) Serial.println(" COMPASS Fusion Mode");
+    else if (operation_mode == 10) Serial.println(" M4G Fusion Mode");
+    else if (operation_mode == 11) Serial.println(" NDOF_FMC_OFF Fusion Mode");
+    else if (operation_mode == 12) Serial.println(" NDOF Fusion Mode");
+    else Serial.println(" There seems to be a problem with the Operation Mode");
+
+     
+    uint8_t self_test_result = BNOread(BNO055_SELFTEST_RESULT_ADDR);
+    sprintf(statusMessage,"Self Test Result: 0x%02X ",self_test_result);
+    Serial.print(statusMessage);
+    if (self_test_result == 0xf) Serial.println(" All systems passed the Self Test");
+    else Serial.println(" There seems to be a problem.");
+
+    uint8_t system_status    = BNOread(BNO055_SYS_STAT_ADDR);
+    sprintf(statusMessage,"System Status: 0x%02X ",system_status);
+    Serial.print(statusMessage);
+    if      (system_status == 0) Serial.println("System Idle");
+    else if (system_status == 1) Serial.println("System Error");
+    else if (system_status == 2) Serial.println("Initilaising peripherals");
+    else if (system_status == 3) Serial.println("System Initialization");
+    else if (system_status == 4) Serial.println("Executing Self Test");
+    else if (system_status == 5) Serial.println("Sensor Fusion Algorithm Running");
+    else if (system_status == 6) Serial.println("System running without fusion algorithm");
+    else Serial.println(" There seems to be a problem.");
+         
+    
+    if (system_status == 1){
+      uint8_t system_error     = BNOread(BNO055_SYS_ERR_ADDR);
+      sprintf(statusMessage,"System Error: 0x%02X ",system_error);
+      Serial.print(statusMessage);
+      if (system_error == 0) Serial.println(" All systems passed the Self Test");
+      else Serial.println(" There seems to be a problem with system status.");
+    }
+
+    uint8_t unit_selected    = BNOread(BNO055_UNIT_SEL_ADDR);
+    sprintf(statusMessage,"Unit Select: 0x%02X ",unit_selected);
+    Serial.println(statusMessage);
+    if (unit_selected & 1 == 0) Serial.println("Accelerations are in m/s/s.");
+    else Serial.println("Accelerations are in milli g.");
+    if ((unit_selected & 2) >> 1 == 0) Serial.println("Rate Gyro is in Degrees/Second.");
+    else Serial.println("Rate Gyro in Radians/Second.");
+    if ((unit_selected & 4) >> 2 == 0) Serial.println("Euler Angle is in Degrees.");
+    else Serial.println("Euler Angle is in Radians.");
+    if ((unit_selected & 0x10) >> 4 == 0) Serial.println("Temperature is in Celcius.");
+    else Serial.println("Temperature is in Farenheit.");
+
+    BNOwrite(BNO055_PAGE_ID_ADDR,1); // Set to page 1
+    
+    uint8_t gyro_config    = BNOread(GYRO_CONF_0);
+    sprintf(statusMessage,"Gyro Configuration 0: 0x%02X ",gyro_config);
+    Serial.println(statusMessage);
+    if      ((gyro_config & 0b0111) == 0) Serial.println("Gyro Range is 2000 dps.");
+    else if ((gyro_config & 0b0111) == 1) Serial.println("Gyro Range is 1000 dps.");
+    else if ((gyro_config & 0b0111) == 2) Serial.println("Gyro Range is 500 dps.");
+    else if ((gyro_config & 0b0111) == 3) Serial.println("Gyro Range is 250 dps.");
+    else if ((gyro_config & 0b0111) == 4) Serial.println("Gyro Range is 125 dps.");
+    else Serial.println("There is something wrong with the Gyro Range reading.");
+    
+    if      ((gyro_config & 0b0111000)>>3 == 0) Serial.println("Gyro Bandwidth is 523 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 1) Serial.println("Gyro Bandwidth is 230 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 2) Serial.println("Gyro Bandwidth is 116 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 3) Serial.println("Gyro Bandwidth is 47 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 4) Serial.println("Gyro Bandwidth is 23 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 5) Serial.println("Gyro Bandwidth is 12 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 6) Serial.println("Gyro Bandwidth is 64 Hz.");
+    else if ((gyro_config & 0b0111000)>>3 == 7) Serial.println("Gyro Bandwidth is 32 Hz.");
+    else Serial.println("There is something wrong with the Gyro Bandwidth reading.");
+
+
+    uint8_t mag_config    = BNOread(MAG_CONF);
+    sprintf(statusMessage,"Magentometer Configuration: 0x%02X ",mag_config);
+    Serial.println(statusMessage);
+    Serial.print("Magnetometer Output Data Rate is ");
+    if      ((mag_config & 0b0111) == 0) Serial.println("2 Hz.");
+    else if ((mag_config & 0b0111) == 1) Serial.println("6 Hz.");
+    else if ((mag_config & 0b0111) == 2) Serial.println("8 Hz.");
+    else if ((mag_config & 0b0111) == 3) Serial.println("10 Hz.");
+    else if ((mag_config & 0b0111) == 4) Serial.println("15 Hz.");
+    else if ((mag_config & 0b0111) == 5) Serial.println("20 Hz.");
+    else if ((mag_config & 0b0111) == 6) Serial.println("25 Hz.");
+    else if ((mag_config & 0b0111) == 7) Serial.println("30 Hz.");
+    else Serial.println("XX. There is something wrong with the Magnetometer data output reading.");
+
+    Serial.print("Magnetometer Operation Mode is ");
+    if      ((mag_config & 0b011000)>>3 == 0) Serial.println("Low Power");
+    else if ((mag_config & 0b011000)>>3 == 1) Serial.println("Regular");
+    else if ((mag_config & 0b011000)>>3 == 2) Serial.println("Enhanced Regular");
+    else if ((mag_config & 0b011000)>>3 == 3) Serial.println("High Accuracy");
+    else Serial.println("XX. There is something wrong with the Magnetometer data output reading.");
+    
+    uint8_t accel_config    = BNOread(ACC_CONF);
+    sprintf(statusMessage,"Accelerometer Configuration: 0x%02X ",accel_config);
+    Serial.println(statusMessage);
+    Serial.print("Accelerometer G Range is ");
+    if      ((accel_config & 0b011) == 0) Serial.println("2 G.");
+    else if ((accel_config & 0b011) == 1) Serial.println("4 G.");
+    else if ((accel_config & 0b011) == 2) Serial.println("8 G.");
+    else if ((accel_config & 0b011) == 3) Serial.println("16 G.");
+    else Serial.println("XX. There is something wrong with the Accelerometer G Range reading.");
+
+    Serial.print("Accelerometer Bandwidth is ");
+    if      ((accel_config & 0b011100)>>2 == 0) Serial.println("7.81 Hz.");
+    else if ((accel_config & 0b011100)>>2 == 1) Serial.println("15.63 Hz");
+    else if ((accel_config & 0b011100)>>2 == 2) Serial.println("31.25 Hz");
+    else if ((accel_config & 0b011100)>>2 == 3) Serial.println("62.5 Hz");
+    else if ((accel_config & 0b011100)>>2 == 4) Serial.println("125 Hz");
+    else if ((accel_config & 0b011100)>>2 == 5) Serial.println("250 Hz");
+    else if ((accel_config & 0b011100)>>2 == 6) Serial.println("500 Hz");
+    else if ((accel_config & 0b011100)>>2 == 7) Serial.println("1000 Hz");
+    else Serial.println("XX. There is something wrong with the Accelerometer Bandwidth reading.");
+ 
+    BNOwrite(BNO055_PAGE_ID_ADDR,0); // Set back to page 0
+
+    uint8_t calibraton_status    = BNOread(BNO055_CALIB_STAT_ADDR);
+    sprintf(statusMessage,"Calibration Status: 0x%02X ",calibraton_status);
+    Serial.println(statusMessage);
+    Serial.print("System Calibration is  ");
+    if      ((calibraton_status & 0b11000000)>>6 == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b11000000)>>6 == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    Serial.print("Gyro Calibration is  ");
+    if      ((calibraton_status & 0b00110000)>>4 == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b00110000)>>4 == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    Serial.print("Accelerometer Calibration is  ");
+    if      ((calibraton_status & 0b00001100)>>2 == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b00001100)>>2 == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    Serial.print("Magentometer Calibration is  ");
+    if      ((calibraton_status & 0b00000011) == 0) Serial.println("Not Calibrated.");
+    else if ((calibraton_status & 0b00000011) == 3) Serial.println("Fully Calibrated.");
+    else Serial.println("Something in the middle.");
+    return gyro_config;
+}
