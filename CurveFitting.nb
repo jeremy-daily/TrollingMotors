@@ -1,0 +1,357 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 10.2' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[     11624,        347]
+NotebookOptionsPosition[     10252,        299]
+NotebookOutlinePosition[     10902,        322]
+CellTagsIndexPosition[     10798,        317]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+Cell[BoxData[
+ RowBox[{"ClearAll", "[", "\"\<Global`*\>\"", "]"}]], "Input",
+ CellChangeTimes->{{3.65806971255349*^9, 3.65806977290549*^9}, 
+   3.65806980929649*^9}],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"Information", "[", "ClearAll", "]"}]], "Input",
+ NumberMarks->False],
+
+Cell[BoxData[
+ RowBox[{
+  StyleBox[
+   RowBox[{"EvaluateScheduledTask", "::", "shdw"}], "MessageName"], 
+  RowBox[{
+  ":", " "}], "\<\"Symbol \[NoBreak]\\!\\(\\\"EvaluateScheduledTask\\\"\\)\
+\[NoBreak] appears in multiple contexts \[NoBreak]\\!\\({\\\"System`\\\", \
+\\\"Global`\\\"}\\)\[NoBreak]; definitions in context \
+\[NoBreak]\\!\\(\\\"System`\\\"\\)\[NoBreak] may shadow or be shadowed by \
+other definitions. \\!\\(\\*ButtonBox[\\\"\[RightSkeleton]\\\", ButtonStyle->\
+\\\"Link\\\", ButtonFrame->None, \
+ButtonData:>\\\"paclet:ref/message/General/shdw\\\", ButtonNote -> \
+\\\"EvaluateScheduledTask::shdw\\\"]\\)\"\>"}]], "Message", "MSG",
+ CellChangeTimes->{3.65806975317449*^9}],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{
+  StyleBox["\<\"\\!\\(\\*RowBox[{\\\"ClearAll\\\", \\\"[\\\", \
+RowBox[{SubscriptBox[StyleBox[\\\"symb\\\", \\\"TI\\\"], StyleBox[\\\"1\\\", \
+\\\"TR\\\"]], \\\",\\\", SubscriptBox[StyleBox[\\\"symb\\\", \\\"TI\\\"], \
+StyleBox[\\\"2\\\", \\\"TR\\\"]], \\\",\\\", StyleBox[\\\"\[Ellipsis]\\\", \\\
+\"TR\\\"]}], \\\"]\\\"}]\\) clears all values, definitions, attributes, \
+messages, and defaults associated with symbols. \
+\\n\\!\\(\\*RowBox[{\\\"ClearAll\\\", \\\"[\\\", \
+RowBox[{StyleBox[\\\"\\\\\\\"\\\\!\\\\(\\\\*StyleBox[\\\\\\\"form\\\\\\\",\\\\\
+\\\"TI\\\\\\\"]\\\\_1\\\\)\\\\\\\"\\\", ShowStringCharacters->True], \
+\\\",\\\", StyleBox[\\\"\\\\\\\"\\\\!\\\\(\\\\*StyleBox[\\\\\\\"form\\\\\\\",\
+\\\\\\\"TI\\\\\\\"]\\\\_2\\\\)\\\\\\\"\\\", ShowStringCharacters->True], \
+\\\",\\\", StyleBox[\\\"\[Ellipsis]\\\", \\\"TR\\\"]}], \\\"]\\\"}]\\) clears \
+all symbols whose names textually match any of the \
+\\!\\(\\*SubscriptBox[StyleBox[\\\"form\\\", \\\"TI\\\"], StyleBox[\\\"i\\\", \
+\\\"TI\\\"]]\\). \"\>", "MSG"], "\[NonBreakingSpace]", 
+  ButtonBox[
+   StyleBox["\[RightSkeleton]", "SR"],
+   Active->True,
+   BaseStyle->"Link",
+   ButtonData->"paclet:ref/ClearAll"]}]], "Print", "PrintUsage",
+ CellChangeTimes->{3.6580697536994905`*^9},
+ CellTags->"Info-c6f27388-921c-42fc-abf1-9a49dcecf286"],
+
+Cell[BoxData[
+ InterpretationBox[GridBox[{
+    {
+     RowBox[{
+      RowBox[{"Attributes", "[", "ClearAll", "]"}], "=", 
+      RowBox[{"{", 
+       RowBox[{"HoldAll", ",", "Protected"}], "}"}]}]}
+   },
+   BaselinePosition->{Baseline, {1, 1}},
+   GridBoxAlignment->{
+    "Columns" -> {{Left}}, "ColumnsIndexed" -> {}, "Rows" -> {{Baseline}}, 
+     "RowsIndexed" -> {}}],
+  Definition[ClearAll],
+  Editable->False]], "Print",
+ CellChangeTimes->{3.65806975372649*^9},
+ CellTags->"Info-c6f27388-921c-42fc-abf1-9a49dcecf286"]
+}, Open  ]]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"sol", "=", 
+  RowBox[{"DSolve", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+      RowBox[{
+       RowBox[{
+        RowBox[{"T", " ", 
+         RowBox[{"D", "[", 
+          RowBox[{
+           RowBox[{"r", "[", "t", "]"}], ",", "t"}], "]"}]}], "+", 
+        RowBox[{"D", "[", 
+         RowBox[{"r", "[", "t", "]"}], "]"}]}], " ", "\[Equal]", " ", 
+       RowBox[{"k", " ", "delta", "*", 
+        RowBox[{"UnitStep", "[", "t", "]"}]}]}], ",", 
+      RowBox[{
+       RowBox[{"r", "[", "0", "]"}], "==", "psi0"}]}], "}"}], ",", 
+    RowBox[{"r", "[", "t", "]"}], ",", "t"}], "]"}]}]], "Input",
+ CellChangeTimes->{{3.6580685948734903`*^9, 3.65806868555949*^9}, {
+   3.65806963873149*^9, 3.65806969784649*^9}, 3.65806982531049*^9, {
+   3.65806987980349*^9, 3.65806988054749*^9}, {3.6580699459774904`*^9, 
+   3.6580699463124905`*^9}, {3.65806999246149*^9, 3.65807000702049*^9}, {
+   3.65807008007249*^9, 3.65807009911949*^9}, {3.65807023463949*^9, 
+   3.6580702355914903`*^9}, {3.6580705345904903`*^9, 3.6580705703804903`*^9}}],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{"{", 
+   RowBox[{
+    RowBox[{"r", "[", "t", "]"}], "\[Rule]", 
+    RowBox[{
+     RowBox[{
+      SuperscriptBox["\[ExponentialE]", 
+       RowBox[{"-", 
+        FractionBox["t", "T"]}]], " ", "psi0"}], "+", 
+     RowBox[{
+      RowBox[{"(", 
+       RowBox[{
+        RowBox[{
+         RowBox[{"-", 
+          SuperscriptBox["\[ExponentialE]", 
+           RowBox[{"-", 
+            FractionBox["t", "T"]}]]}], " ", "psi0"}], "+", 
+        RowBox[{
+         SuperscriptBox["\[ExponentialE]", 
+          RowBox[{"-", 
+           FractionBox["t", "T"]}]], " ", 
+         RowBox[{"(", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"-", "delta"}], " ", "k"}], "+", 
+           RowBox[{"delta", " ", 
+            SuperscriptBox["\[ExponentialE]", 
+             RowBox[{"t", "/", "T"}]], " ", "k"}], "+", "psi0"}], ")"}]}]}], 
+       ")"}], " ", 
+      RowBox[{"UnitStep", "[", "t", "]"}]}]}]}], "}"}], "}"}]], "Output",
+ CellChangeTimes->{{3.6580686529234905`*^9, 3.6580686881354904`*^9}, {
+   3.6580696850034904`*^9, 3.6580697227364902`*^9}, 3.65806978052649*^9, {
+   3.65806981477749*^9, 3.6580698478344903`*^9}, 3.65806988533249*^9, 
+   3.65806995266249*^9, 3.6580700093714905`*^9, 3.6580701038244905`*^9, 
+   3.65807023622549*^9, {3.6580705609164906`*^9, 3.6580705823744903`*^9}}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"FullSimplify", "[", 
+  RowBox[{"sol", "[", 
+   RowBox[{"[", "1", "]"}], "]"}], "]"}]], "Input",
+ CellChangeTimes->{{3.65807023990249*^9, 3.65807026799049*^9}, {
+  3.65807059240249*^9, 3.6580705929864902`*^9}}],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{
+   RowBox[{"r", "[", "t", "]"}], "\[Rule]", 
+   RowBox[{
+    RowBox[{"delta", " ", "k", " ", 
+     RowBox[{"UnitStep", "[", "t", "]"}]}], "+", 
+    RowBox[{
+     SuperscriptBox["\[ExponentialE]", 
+      RowBox[{"-", 
+       FractionBox["t", "T"]}]], " ", 
+     RowBox[{"(", 
+      RowBox[{"psi0", "-", 
+       RowBox[{"delta", " ", "k", " ", 
+        RowBox[{"UnitStep", "[", "t", "]"}]}]}], ")"}]}]}]}], "}"}]], "Output",
+ CellChangeTimes->{{3.65807024702149*^9, 3.65807026846049*^9}, 
+   3.65807059385149*^9}]
+}, Open  ]],
+
+Cell[BoxData[
+ RowBox[{"Log", "[", 
+  RowBox[{
+   RowBox[{"delta", " ", "k", " ", 
+    RowBox[{"UnitStep", "[", "t", "]"}]}], "+", 
+   RowBox[{
+    SuperscriptBox["\[ExponentialE]", 
+     RowBox[{"-", 
+      FractionBox["t", "T"]}]], " ", 
+    RowBox[{"(", 
+     RowBox[{"psi0", "-", 
+      RowBox[{"delta", " ", "k", " ", 
+       RowBox[{"UnitStep", "[", "t", "]"}]}]}], ")"}]}]}], "]"}]], "Input",
+ CellChangeTimes->{{3.6580704535034904`*^9, 3.65807045661049*^9}, {
+  3.6580707396824903`*^9, 3.6580707549304905`*^9}}],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"FullSimplify", "[", 
+  RowBox[{"Log", "[", 
+   RowBox[{
+    RowBox[{"delta", " ", "k", " ", 
+     RowBox[{"UnitStep", "[", "t", "]"}]}], "+", 
+    RowBox[{
+     SuperscriptBox["\[ExponentialE]", 
+      RowBox[{"-", 
+       FractionBox["t", "T"]}]], " ", 
+     RowBox[{"(", 
+      RowBox[{"psi0", "-", 
+       RowBox[{"delta", " ", "k", " ", 
+        RowBox[{"UnitStep", "[", "t", "]"}]}]}], ")"}]}]}], "]"}], "]"}]], \
+"Input",
+ CellChangeTimes->{{3.6580707652484903`*^9, 3.6580707692654905`*^9}}],
+
+Cell[BoxData[
+ RowBox[{"Log", "[", 
+  RowBox[{
+   RowBox[{"delta", " ", "k", " ", 
+    RowBox[{"UnitStep", "[", "t", "]"}]}], "+", 
+   RowBox[{
+    SuperscriptBox["\[ExponentialE]", 
+     RowBox[{"-", 
+      FractionBox["t", "T"]}]], " ", 
+    RowBox[{"(", 
+     RowBox[{"psi0", "-", 
+      RowBox[{"delta", " ", "k", " ", 
+       RowBox[{"UnitStep", "[", "t", "]"}]}]}], ")"}]}]}], "]"}]], "Output",
+ CellChangeTimes->{3.65807077034949*^9}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"TrigToExp", "[", "sol", "]"}]], "Input",
+ CellChangeTimes->{{3.6580702990694904`*^9, 3.65807031299449*^9}, {
+  3.65807042133249*^9, 3.65807046860149*^9}}],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{"{", 
+   RowBox[{
+    RowBox[{"psi", "[", "t", "]"}], "\[Rule]", 
+    RowBox[{
+     RowBox[{
+      FractionBox["1", "2"], " ", 
+      SuperscriptBox["\[ExponentialE]", 
+       RowBox[{"-", 
+        FractionBox[
+         RowBox[{"\[ImaginaryI]", " ", "t"}], 
+         SqrtBox["T"]]}]], " ", "psi0"}], "+", 
+     RowBox[{
+      FractionBox["1", "2"], " ", 
+      SuperscriptBox["\[ExponentialE]", 
+       FractionBox[
+        RowBox[{"\[ImaginaryI]", " ", "t"}], 
+        SqrtBox["T"]]], " ", "psi0"}], "+", 
+     RowBox[{
+      FractionBox["1", "2"], " ", "\[ImaginaryI]", " ", 
+      SuperscriptBox["\[ExponentialE]", 
+       RowBox[{"-", 
+        FractionBox[
+         RowBox[{"\[ImaginaryI]", " ", "t"}], 
+         SqrtBox["T"]]}]], " ", "psidot0", " ", 
+      SqrtBox["T"]}], "-", 
+     RowBox[{
+      FractionBox["1", "2"], " ", "\[ImaginaryI]", " ", 
+      SuperscriptBox["\[ExponentialE]", 
+       FractionBox[
+        RowBox[{"\[ImaginaryI]", " ", "t"}], 
+        SqrtBox["T"]]], " ", "psidot0", " ", 
+      SqrtBox["T"]}], "+", 
+     RowBox[{"delta", " ", "k", " ", 
+      RowBox[{"UnitStep", "[", "t", "]"}]}], "-", 
+     RowBox[{
+      FractionBox["1", "2"], " ", "delta", " ", 
+      SuperscriptBox["\[ExponentialE]", 
+       RowBox[{"-", 
+        FractionBox[
+         RowBox[{"\[ImaginaryI]", " ", "t"}], 
+         SqrtBox["T"]]}]], " ", "k", " ", 
+      RowBox[{"UnitStep", "[", "t", "]"}]}], "-", 
+     RowBox[{
+      FractionBox["1", "2"], " ", "delta", " ", 
+      SuperscriptBox["\[ExponentialE]", 
+       FractionBox[
+        RowBox[{"\[ImaginaryI]", " ", "t"}], 
+        SqrtBox["T"]]], " ", "k", " ", 
+      RowBox[{"UnitStep", "[", "t", "]"}]}]}]}], "}"}], "}"}]], "Output",
+ CellChangeTimes->{
+  3.6580703133784904`*^9, {3.6580704267034903`*^9, 3.6580704690174904`*^9}}]
+}, Open  ]]
+},
+WindowSize->{759, 835},
+WindowMargins->{{Automatic, 156}, {92, Automatic}},
+FrontEndVersion->"10.2 for Microsoft Windows (64-bit) (July 7, 2015)",
+StyleDefinitions->"Default.nb"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{
+ "Info-c6f27388-921c-42fc-abf1-9a49dcecf286"->{
+  Cell[1558, 48, 1326, 23, 62, "Print",
+   CellTags->"Info-c6f27388-921c-42fc-abf1-9a49dcecf286"],
+  Cell[2887, 73, 520, 15, 23, "Print",
+   CellTags->"Info-c6f27388-921c-42fc-abf1-9a49dcecf286"]}
+ }
+*)
+(*CellTagsIndex
+CellTagsIndex->{
+ {"Info-c6f27388-921c-42fc-abf1-9a49dcecf286", 10577, 309}
+ }
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[558, 20, 165, 3, 31, "Input"],
+Cell[CellGroupData[{
+Cell[748, 27, 92, 2, 31, "Input"],
+Cell[843, 31, 690, 13, 56, "Message"],
+Cell[CellGroupData[{
+Cell[1558, 48, 1326, 23, 62, "Print",
+ CellTags->"Info-c6f27388-921c-42fc-abf1-9a49dcecf286"],
+Cell[2887, 73, 520, 15, 23, "Print",
+ CellTags->"Info-c6f27388-921c-42fc-abf1-9a49dcecf286"]
+}, Open  ]]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[3456, 94, 1050, 24, 31, "Input"],
+Cell[4509, 120, 1329, 35, 46, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[5875, 160, 233, 5, 31, "Input"],
+Cell[6111, 167, 551, 16, 43, "Output"]
+}, Open  ]],
+Cell[6677, 186, 519, 14, 43, "Input"],
+Cell[CellGroupData[{
+Cell[7221, 204, 521, 15, 43, InheritFromParent],
+Cell[7745, 221, 441, 13, 76, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[8223, 239, 178, 3, 31, "Input"],
+Cell[8404, 244, 1832, 52, 104, "Output"]
+}, Open  ]]
+}
+]
+*)
+
+(* End of internal cache information *)
+
