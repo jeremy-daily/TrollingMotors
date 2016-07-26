@@ -105,8 +105,8 @@ double ekfSpeed;
 double ekfAccel;
 
 
-
-
+char topLine[17];
+char botLine[17];
 
 
 
@@ -139,7 +139,7 @@ double headingReading;
 double totalTurn = 0;
 double lastAngle = 0;
 double targetAngle=0;
-
+double endAngle = 0;
 
 double omega = 0;
 double motorInput = 0;
@@ -162,14 +162,7 @@ elapsedMillis broadcastCANtimer; //set up intervals
 elapsedMillis waitingForCANtimer;
 elapsedMillis printTFTtimer;
 elapsedMillis debugSerialtimer;
-elapsedMillis mode0displaytimer;
-elapsedMillis mode1displaytimer;
-elapsedMillis mode2displaytimer;
-elapsedMillis mode3displaytimer;
-elapsedMillis mode4displaytimer;
-elapsedMillis mode5displaytimer;
-elapsedMillis mode6displaytimer;
-elapsedMillis mode7displaytimer;
+elapsedMillis modeDisplayTimer;
 elapsedMillis CANaliveTimer;
 elapsedMillis speedSettingTimer;
 elapsedMillis broadcastCANmodeTimer;
@@ -179,6 +172,8 @@ elapsedMillis gyroReadingTimer;
 elapsedMillis delayTimer;
 elapsedMillis sineSweepTimer;
 elapsedMillis anchorAdjustTimer;
+
+const int modeDisplayTime = 80;
 
 const int speedSetTime = 150; //set how quickly the speed changes.
 const int courseSetTime = 150; //set how quickly the speed changes.
@@ -922,12 +917,12 @@ void loop() {
         if (leftButtonState){
           goalAngle -= 1;
           //memset(differenceList, 0, sizeof(differenceList)) ;
-          turnSetting = -50;
+          turnSetting = -60;
         }
         if (rightButtonState) {
           goalAngle += 1;
           //memset(differenceList, 0, sizeof(differenceList)) ;
-          turnSetting = 50;
+          turnSetting = 60;
         }
         
         
@@ -1438,338 +1433,124 @@ void resetOutputs() {
   angleSetting = 0;
   rightMotor = stopMotorValue;
   leftMotor  = stopMotorValue;
-
 }
+
+
+/***************************************************************************************/
+/*Display Modes*************************************************************************/
 
 void displayMode0() {
-  if (mode0displaytimer >= 80) {
-    mode0displaytimer = 0;
-
-    sprintf(message, "%i  OFF  ", mode);
-    txmsg.id = 0x211; //sent to the lower right
-    txmsg.len = 8;
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
-    
-
-    sprintf(message, " Sats:%2i ", int(gps.satellites.value()));
-    txmsg.id = 0x212; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
-    
-
-    sprintf(message, "H:%3i C:", int(gps.course.deg()));
-    txmsg.id = 0x221; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
-    
-
-    sprintf(message, "%3i S:%2i", int(ekfYawAngle), int(ekfSpeed) );
-    txmsg.id = 0x222; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
-    
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i OFF  Sats:%2i ", mode, goalSpeed);
+    displayTopLine(topLine);
+    sprintf(message, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
+    displayBottomLine(botLine);
   }
 }
-
 
 void displayMode1() {
-  if (mode1displaytimer >= 80) {
-    mode1displaytimer = 0;
-
-    sprintf(message, "%i Manual", mode);
-    txmsg.id = 0x211; //sent to the lower right
-    txmsg.len = 8;
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i Manual Spd:%3.1f", mode, goalSpeed);
+    displayTopLine(topLine);
     
-
-    sprintf(message, " Spd:%3.1f", (goalSpeed));
-    txmsg.id = 0x212; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+    if (mode1started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    else strncpy(botLine, "Butn+Up to Start", 16);
     
-
-    if (mode1started) {
-      sprintf(message, "G:%3i C:", int(goalAngle));
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      sprintf(message, "%3i S:%2i", int(ekfYawAngle), int(ekfSpeed) );
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-    else
-    {
-      strncpy(message, "Butn+Up ", 8);
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      strncpy(message, "to Start", 8);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
+    displayBottomLine(botLine);
   }
 }
-
 
 void displayMode2() {
-  if (mode2displaytimer >= 80) {
-    mode2displaytimer = 0;
-
-    sprintf(message, "%i Turn90", mode);
-    txmsg.id = 0x211; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i Turn90  E:%3i ", mode, int(endAngle)); 
+    displayTopLine(topLine);
     
-
-    sprintf(message, " Sats:%2i  ", int(gps.satellites.value()));
-    txmsg.id = 0x212; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+    if (mode2started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    else strncpy(botLine, "Butn+Up to Start", 16);
     
-
-    if (mode2started) {
-      sprintf(message, "G:%3i C:", int(targetAngle));
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      sprintf(message, "%3i S:%2i", int(ekfYawAngle), int(ekfSpeed) );
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-    else
-    {
-      strncpy(message, "Butn+Up ", 8);
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      strncpy(message, "to Start", 8);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-
-
+    displayBottomLine(botLine);
   }
 }
-
 
 void displayMode3() {
-  if (mode3displaytimer >= 80) {
-    mode3displaytimer = 0;
-
-    sprintf(message, "%i Anchor", mode);
-    txmsg.id = 0x211; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i Anch C%3i D%3i", mode, int(courseToFixPoint),int(distanceToFixPoint)); 
+    displayTopLine(topLine);
     
-
-    sprintf(message, " Crs:%3i", int(courseToFixPoint));
-    txmsg.id = 0x212; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+    if (mode3started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    else strncpy(botLine, "Butn+Up to Start", 16);
     
-
-    if (mode3started) {
-      sprintf(message, "D:%3i C:", int(distanceToFixPoint));
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      sprintf(message, "%3i S%3.1f", int(compassHeading), goalSpeed);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-    else
-    {
-      strncpy(message, "Butn+Up ", 8);
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      strncpy(message, "to Start", 8);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-
-
+    displayBottomLine(botLine);
   }
 }
-
 
 void displayMode4() {
-  if (mode4displaytimer >= 80) {
-    mode4displaytimer = 0;
-
-    mode1displaytimer = 0;
-    sprintf(message, "%i Fig. 8", mode);
-    txmsg.id = 0x211; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i Fig8 E%3i D%3i", mode, int(endAngle),int(distanceToFixPoint)); 
+    displayTopLine(topLine);
     
-
-    sprintf(message, " Sats:%2i", int(gps.satellites.value()));
-    txmsg.id = 0x212; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+    if (mode4started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    else strncpy(botLine, "Butn+Up to Start", 16);
     
-
-    if (mode4started) {
-      sprintf(message, "H:%3i C:", int(gps.course.deg()));
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      sprintf(message, "%3i S:%2i", int(compassHeading), int(ekfSpeed) );
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-    else
-    {
-      strncpy(message, "Butn+Up ", 8);
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      strncpy(message, "to Start", 8);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-
-
+    displayBottomLine(botLine);
   }
 }
-
 
 void displayMode5() {
-  if (mode5displaytimer >= 80) {
-    mode5displaytimer = 0;
-
-    mode1displaytimer = 0;
-    sprintf(message, "%i Full  ", mode);
-    txmsg.id = 0x211; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i Full Spd:%4.1f", mode,ekfSpeed); //motorInput is the value sent to the motors.
+    displayTopLine(topLine);
     
-
-    sprintf(message, " Sats:%2i  ", int(gps.satellites.value()));
-    txmsg.id = 0x212; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+    if (mode5started) sprintf(message, "H:%3i YawRt:%4.1f", int(ekfYawAngle), ekfYawRate);
+    else strncpy(botLine, "Butn+Up to Start", 16);
     
-
-    if (mode5started) {
-      sprintf(message, "H:%3i C:", int(gps.course.deg()));
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      sprintf(message, "%3i S:%2i", int(compassHeading), int(ekfSpeed) );
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-    else
-    {
-      strncpy(message, "Butn+Up ", 8);
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      strncpy(message, "to Start", 8);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-
+    displayBottomLine(botLine);
   }
 }
-
 
 void displayMode6() {
-  if (mode6displaytimer >= 80) {
-    mode6displaytimer = 0;
-
-    sprintf(message, "%i Calib ", mode);
-    txmsg.id = 0x211; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i Compass Calib ", mode); //motorInput is the value sent to the motors.
+    displayTopLine(topLine);
     
-
-    sprintf(message, "Comp %3i", int(compassHeading));
-    txmsg.id = 0x212; //sent to the lower right
-    for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-    CANbus.write(txmsg);
+    if (mode6started) sprintf(message, "Turn:%4i Hdg:%3i", int(totalTurn), int(compassHeading));
+    else strncpy(botLine, "Butn+Up to Start", 16);
     
-
-    if (mode6started) {
-      sprintf(message, "Turn:%4i H:%4i", int(totalTurn), int(gps.course.deg()));
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j + 8];
-      CANbus.write(txmsg);
-      
-    }
-    else
-    {
-      strncpy(message, "Butn+Up ", 8);
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-
-      strncpy(message, "to Start", 8);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-
+    displayBottomLine(botLine);
   }
 }
 
+void displayMode7() {
+  if (modeDisplayTimer >= modeDisplayTime) {
+    modeDisplayTimer = 0;
+    sprintf(topLine, "%i Freq. Sweep %2i", mode, int(motorInput)); //motorInput is the value sent to the motors.
+    displayTopLine(topLine);
+    
+    if (mode7started) sprintf(botLine, "%5.4f H:%3i S:%2.1f", omega, int(ekfYawAngle), ekfSpeed);
+    else strncpy(botLine, "Butn+Up to Start", 16);
+    
+    displayBottomLine(botLine);
+  }
+}
+/*End Display Modes*************************************************************************/
+/***************************************************************************************/
+
+
+
+/*****************************************************************************************/
+/* DISPLAY HELPER FUNCTIONS */
 void displayUpperLeft8(char message[9]){
   txmsg.id = 0x211; //sent to the lower right
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
   CANbus.write(txmsg);
 }
-
 
 void displayUpperRight8(char message[9]){
   txmsg.id = 0x212; //sent to the lower right
@@ -1790,69 +1571,36 @@ void displayLowerRight8(char message[9]){
   CANbus.write(txmsg);
 }
 
-void displayTopLine(char topLine[17]){
+void displayTopLine(char _topLine[17]){
   char message[9];
-  for (int j = 0; j < 8; j++) message[j] = topLine[j];
+  for (int j = 0; j < 8; j++) message[j] = _topLine[j];
   displayUpperLeft8(message);
-  for (int j = 8; j < 16; j++) message[j] = topLine[j];
+  for (int j = 8; j < 16; j++) message[j] = _topLine[j];
   displayUpperRight8(message);
 }
 
-void displayBottomLine(char botLine[17]){
+void displayBottomLine(char _botLine[17]){
   char message[9];
-  for (int j = 0; j < 8; j++) message[j] = botLine[j];
+  for (int j = 0; j < 8; j++) message[j] = _botLine[j];
   displayLowerLeft8(message);
-  for (int j = 8; j < 16; j++) message[j] = botLine[j];
+  for (int j = 8; j < 16; j++) message[j] = _botLine[j];
   displayLowerRight8(message);
 }
+/* END DISPLAY HELPER FUNCTIONS */
+/*****************************************************************************************/
 
 
-void displayMode7() {
-  if (mode7displaytimer >= 80) {
-    mode7displaytimer = 0;
-    char topLine[17];
-    sprintf(topLine, "%i Freq. Sweep %2i", mode, int(motorInput));
-    displayTopLine(topLine);
-    
-    if (mode7started) {
-      char botLine[17];
-      sprintf(botLine, "%5.4f H:%3i S:%2.1f", omega, int(ekfYawAngle), ekfSpeed);
-      displayBottomLine(botLine);
-      
-      
-    }
-    else
-    {
-      strncpy(message, "Butn+Up ", 8);
-      txmsg.id = 0x221; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
 
-      strncpy(message, "to Start", 8);
-      txmsg.id = 0x222; //sent to the lower right
-      for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-      CANbus.write(txmsg);
-      
-    }
-
-  }
-}
 
 void  calculateMotorOutput() {
   if (calculateMotorOutputTimer >= deltaTms) {
     calculateMotorOutputTimer = 0;
 
-
-
-    // difference = goalAngle - yawAngle; // using BNO055 as input
-    
-
-    difference = goalAngle - ekfYawAngle; //using compass for input
+    difference = goalAngle - ekfYawAngle; //using Kalman Filter output for input
     if (difference <= -180)  difference += 360;
     if (difference >= 180)  difference -= 360;
 
-    if (turnSetting == 0){//Suspend while changing course to reduce integral windup
+    if (turnSetting == 0){//Suspend while changing course to reduce integral wind-up. The turnSetting is a feed-forward variablet
       differenceList[diffIndex] = int32_t(difference * 1000);
       diffIndex += 1;
       if (diffIndex >= memorySize) diffIndex = 0;
@@ -1862,9 +1610,7 @@ void  calculateMotorOutput() {
     for (int j = 0; j < memorySize; j++) {
       sum += differenceList[j];
     }
-    
-    
-
+ 
     integral = double(sum) / 1000.0 * deltaT;
 
     if (gps.location.isUpdated())
