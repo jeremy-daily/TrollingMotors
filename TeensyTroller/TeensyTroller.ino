@@ -140,6 +140,7 @@ double totalTurn = 0;
 double lastAngle = 0;
 double targetAngle=0;
 double endAngle = 0;
+double startAngle = 0;
 
 double omega = 0;
 double motorInput = 0;
@@ -172,6 +173,7 @@ elapsedMillis gyroReadingTimer;
 elapsedMillis delayTimer;
 elapsedMillis sineSweepTimer;
 elapsedMillis anchorAdjustTimer;
+elapsedMillis fig8timer;
 
 const int modeDisplayTime = 80;
 
@@ -189,7 +191,7 @@ boolean mode7started = false;
 byte mode = 0;
 byte currentMode = 0;
 byte numberOfModes = 7; //This limits the number of displayed modes.
-//char modeNames[7][6]={" Off ","Man. ","TurnL","TurnR","Fix  ","Fig8 ", "Tune "}; // This array is the length of the number of m
+byte fig8phase = 0;
 
 boolean rightButtonState = LOW;
 boolean leftButtonState = LOW;
@@ -886,9 +888,6 @@ void loop() {
   displayData(); // Displays info on the TFT display
   sendCANmessages();
 
-
-
-
   if (mode != currentMode) {
     resetOutputs();
     debugDataHeader();
@@ -944,7 +943,7 @@ void loop() {
     if (upButtonState && pushButtonState) {
       mode1started = true;
       speedSetting = 0;
-      goalAngle = compassHeading;
+      goalAngle = ekfYawAngle;
       memset(differenceList, 0, sizeof(differenceList)) ;
 
     }
@@ -1087,15 +1086,103 @@ void loop() {
   //##############################################################################################
 
   else if (mode == 4) { // figure 8
-    if (upButtonState && pushButtonState) mode4started = true;
-    displayMode4();
-    if (mode5started) {
-      //Put figure8 code here
-      rightMotor = stopMotorValue;
-      leftMotor = stopMotorValue;
-
+    if (upButtonState && pushButtonState) {
+      mode4started = true;
+      fixPointLat=gps.location.lat();
+      fixPointLon=gps.location.lng(); 
+     
+      speedSetting = 2.0;
+      goalAngle = ekfYawAngle;
+      memset(differenceList, 0, sizeof(differenceList));
+      fig8phase = 0;
+      fig8timer = 0;
     }
-    else
+    
+    
+    displayMode4();
+    distanceToFixPoint = gps.distanceBetween(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
+    courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
+    
+    if (mode4started) {
+      calculateMotorOutput();
+      if (fig8phase == 0){ //forward for 100 seconds
+        if (fig8timer >= 100000){
+          fig8timer = 0;
+          fig8phase = 1;
+          startAngle = ekfYawAngle; //degrees
+        }
+      }
+      else if (fig8phase == 1){//right turn slowly for 220 degrees at 1 deg/sec
+        if (fig8timer >= 220000){
+          fig8timer = 0;
+          fig8phase = 2; 
+          turnSetting = 0;
+          startAngle = goalAngle;
+        }
+        else {
+          goalAngle = startAngle + fig8timer/1000.0; //turn rate of 1 deg/second
+          turnSetting = 10; //feed forward
+        }
+      }
+      else if (fig8phase == 2){//Correct towards fixed point
+        if (distanceToFixPoint > 10){
+          double angleDifference = courseToFixPoint - goalAngle;
+          if (fig8timer >= 100){
+            goalAngle += 0.1*angleDifference/abs(angleDifference); //1 degree per second in the direction make the angle difference smaller
+          }
+        }
+        else { //go straight once within 10 meters.
+        
+          fig8timer = 0;
+          fig8phase = 3; 
+        }
+      }
+      else if (fig8phase == 3){ //go straight for 120 seconds
+        if (fig8timer >= 120000){
+          fig8timer = 0;
+          fig8phase = 4;
+          startAngle = ekfYawAngle; //degrees
+        }
+      }
+      else if (fig8phase == 4){//right turn slowly for 220 degrees
+        if (fig8timer >= 220000){
+          fig8timer = 0;
+          fig8phase = 5; 
+          turnSetting = 0;
+          startAngle = goalAngle;
+        }
+        else {
+          goalAngle = startAngle - fig8timer/1000.0; //turn rate of 1 deg/second (in opposite direction)
+          turnSetting = -10; //feed forward
+        }
+      }
+      else if (fig8phase == 5){//Correct towards fixed point
+        if (distanceToFixPoint > 10){
+          double angleDifference = courseToFixPoint - goalAngle;
+          if (fig8timer >= 100){
+            goalAngle += 0.1*angleDifference/abs(angleDifference); //1 degree per second in the direction make the angle difference smaller
+          }
+        }
+        else {//go straight once within 10 meters.
+          fig8timer = 0;
+          fig8phase = 6; 
+        }
+      }
+      else if (fig8phase == 6){ //forward for 20 seconds
+        if (fig8timer >= 20000){
+          fig8timer = 0;
+          fig8phase = 0;
+        }
+      }
+      else { //nofig8phase
+        Serial.println("No fig 8 phase... This is a problem.");
+        delay(100);
+        rightMotor = stopMotorValue;
+        leftMotor = stopMotorValue;
+      }
+    }  
+    
+    else //not mode4started
     {
       rightMotor = stopMotorValue;
       leftMotor = stopMotorValue;
@@ -1161,18 +1248,6 @@ void loop() {
 
       totalTurn = 0;
       lastAngle = compassHeading;
-     
-      rightMotor = maxFwdMotorValue;
-      leftMotor = maxRevMotorValue;
-
-      rightServo.write(rightMotor);
-      leftServo.write(leftMotor);
-      delayTimer = 0;
-      while (delayTimer < 1000) {
-        while (Serial1.available()) gps.encode(Serial1.read());
-        sendCANmessages();
-      }
-
     }
     else if (upButtonState && !pushButtonState) {
       if (gps.location.isUpdated() && ekfSpeed>10){
@@ -1233,16 +1308,6 @@ void loop() {
         rightServo.write(rightMotor);
         leftServo.write(leftMotor);
 
-        strncpy(message, "Turn OK ", 8);
-        txmsg.id = 0x212; //sent to the lower right
-        for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-        CANbus.write(txmsg);
-        
-        delayTimer = 0;
-        while (delayTimer < 1000) {
-          while (Serial1.available()) gps.encode(Serial1.read());
-          sendCANmessages();
-        }
         compass.exitCalMode();
         delay(50);
         compass.exitStandby();
@@ -1329,7 +1394,7 @@ void loop() {
   //##############################################################################################
   //##############################################################################################
 
-  else if (mode == 7) { //Calibrate
+  else if (mode == 7) { //Calibrate with a frequecy sweep
     if (upButtonState && pushButtonState) {
       mode7started = true;
       sineSweepTimer = 0;
@@ -1393,8 +1458,6 @@ void loop() {
 
   }
 
-
-
   //////////////////////////////////////////////////Default
   else
   {
@@ -1408,7 +1471,8 @@ void loop() {
   leftServo.write(leftMotor);
 
 }
-///////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////
 void resetOutputs() {
   speedSetting = 0;
   mode1started = false;
@@ -1434,6 +1498,7 @@ void resetOutputs() {
   rightMotor = stopMotorValue;
   leftMotor  = stopMotorValue;
 }
+////////////////////////////////////////////////////////////////////////////////////////
 
 
 /***************************************************************************************/
@@ -1517,7 +1582,7 @@ void displayMode5() {
 void displayMode6() {
   if (modeDisplayTimer >= modeDisplayTime) {
     modeDisplayTimer = 0;
-    sprintf(topLine, "%i Compass Calib ", mode); //motorInput is the value sent to the motors.
+    sprintf(topLine, "%i Calib.  Up2Set", mode); //motorInput is the value sent to the motors.
     displayTopLine(topLine);
     
     if (mode6started) sprintf(message, "Turn:%4i Hdg:%3i", int(totalTurn), int(compassHeading));
@@ -1593,14 +1658,17 @@ void displayBottomLine(char _botLine[17]){
 
 
 void  calculateMotorOutput() {
+  if (goalAngle > 360) goalAngle -= 360;
+  if (goalAngle < 0) goalAngle += 360;
+  
   if (calculateMotorOutputTimer >= deltaTms) {
     calculateMotorOutputTimer = 0;
-
+  
     difference = goalAngle - ekfYawAngle; //using Kalman Filter output for input
     if (difference <= -180)  difference += 360;
     if (difference >= 180)  difference -= 360;
 
-    if (turnSetting == 0){//Suspend while changing course to reduce integral wind-up. The turnSetting is a feed-forward variablet
+    if (abs(turnSetting) < 15){//Suspend while changing course to reduce integral wind-up. The turnSetting is a feed-forward variablet
       differenceList[diffIndex] = int32_t(difference * 1000);
       diffIndex += 1;
       if (diffIndex >= memorySize) diffIndex = 0;
@@ -1634,7 +1702,7 @@ void  calculateMotorOutput() {
 
 
     int tempRightMotor = int((speedSetting - turnSetting - angleSetting + stopMotorValue)* biasSetting);
-    int tempLeftMotor  = speedSetting + turnSetting + angleSetting + stopMotorValue ;
+    int tempLeftMotor  = int(speedSetting + turnSetting + angleSetting + stopMotorValue) ;
     rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
     leftMotor  = constrain(tempLeftMotor, maxRevMotorValue, maxFwdMotorValue);
 
