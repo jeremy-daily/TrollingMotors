@@ -249,7 +249,7 @@ uint32_t CANRXcount = 0;
 uint32_t ID = 0;
 char message[17] = "                "; //initialize with spaces
 
-float compassHeading = 0.0;
+double compassHeading = 0.0;
 
 boolean rightTurn = false;
 boolean leftTurn = false;
@@ -815,7 +815,7 @@ void debugData() {
 
 double getCompassHeading() {
   compass.readHeading();
-  tempHeading = compass.heading/10.0 - compassOffset; //local compass
+  tempHeading = compass.heading/10.0;// - compassOffset; //local compass
   CANcompassHeading = CANheading - CANcompassOffset;
 
   if (ekfYawAngle > 270 && tempHeading < 90) tempHeading += 360;
@@ -923,10 +923,6 @@ void loop() {
           //memset(differenceList, 0, sizeof(differenceList)) ;
           turnSetting = 60;
         }
-        
-        
-        if (goalAngle > 360) goalAngle -= 360;
-        if (goalAngle < 0   ) goalAngle += 360;
       }
       calculateMotorOutput();
 
@@ -1033,8 +1029,7 @@ void loop() {
       mode3started = true;
       fixPointLat = gps.location.lat();
       fixPointLon = gps.location.lng();
-      resetCompassOffset();
-      ////resetYawOffset()
+    
     }
     
 
@@ -1091,7 +1086,7 @@ void loop() {
       fixPointLat=gps.location.lat();
       fixPointLon=gps.location.lng(); 
      
-      speedSetting = 2.0;
+      goalSpeed = 2.0;
       goalAngle = ekfYawAngle;
       memset(differenceList, 0, sizeof(differenceList));
       fig8phase = 0;
@@ -1104,7 +1099,13 @@ void loop() {
     courseToFixPoint = gps.courseTo(gps.location.lat(), gps.location.lng(), fixPointLat, fixPointLon);
     
     if (mode4started) {
-      calculateMotorOutput();
+      if (speedSettingTimer > speedSetTime) {
+        speedSettingTimer = 0;
+        if (upButtonState && !pushButtonState) goalSpeed += 0.1; //mph
+        if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
+        goalSpeed = constrain(goalSpeed, 0, 4);
+        speedSetting = 22.0 * goalSpeed; //feed forward
+      }
       if (fig8phase == 0){ //forward for 100 seconds
         if (fig8timer >= 100000){
           fig8timer = 0;
@@ -1180,6 +1181,8 @@ void loop() {
         rightMotor = stopMotorValue;
         leftMotor = stopMotorValue;
       }
+      
+      calculateMotorOutput();
     }  
     
     else //not mode4started
@@ -1250,10 +1253,10 @@ void loop() {
       lastAngle = compassHeading;
     }
     else if (upButtonState && !pushButtonState) {
-      if (gps.location.isUpdated() && ekfSpeed>10){
+      if (gps.location.isUpdated() && ekfSpeed > 10){
       
         compass.readHeading();
-        int  deviation = gps.course.deg() * 10 - compass.heading; // Not sure if this is the correct deviation method.
+        int  deviation =  compass.heading - gps.course.deg() * 10; // Not sure if this is the correct deviation method.
         compass.writeEEPROM(0x0A, lowByte(deviation)); //LSB of deviation
         delay(10);
         compass.writeEEPROM(0x0B, highByte(deviation)); //MSB of deviation
@@ -1311,68 +1314,10 @@ void loop() {
         compass.exitCalMode();
         delay(50);
         compass.exitStandby();
-        
-//        strncpy(message, "Forward ", 8);
-//        txmsg.id = 0x212; //sent to the lower right
-//        for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-//        CANbus.write(txmsg);
-//        
-//        resetCompassOffset();
-//        rightMotor = maxFwdMotorValue;
-//        leftMotor = maxFwdMotorValue;
-//
-//        rightServo.write(rightMotor);
-//        leftServo.write(leftMotor);
-//
-//        delayTimer = 0;
-//        while (delayTimer < 10000) {
-//          while (Serial1.available()) gps.encode(Serial1.read());
-//          sendCANmessages();
-//          if (mode != 7) {//abort
-//            resetOutputs();
-//            break;
-//          }
-//          displayMode6();
-//        }
-
-
-//        strncpy(message, "Finished", 8);
-//        txmsg.id = 0x212; //sent to the lower right
-//        for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-//        CANbus.write(txmsg);
-//        
-//        compass.writeEEPROM(0x0A, 0x00); //clear deviation
-//        delay(10);
-//        compass.writeEEPROM(0x0B, 0x00);
-//        delay(10);
-//
-//        compass.reset();
-//
-//        delayTimer = 0;
-//        while (delayTimer < 500) {
-//          while (Serial1.available()) gps.encode(Serial1.read());
-//          sendCANmessages();
-//        }
-//
-//        compass.readHeading();
-//
-//        int  deviation = gps.course.deg() * 10 - compass.heading; // Not sure if this is the correct deviation method.
-//
-//        compass.writeEEPROM(0x0A, lowByte(deviation)); //LSB of deviation
-//        delay(10);
-//        compass.writeEEPROM(0x0B, highByte(deviation)); //MSB of deviation
-//        delay(10);
-//        
-//        compass.reset();
-//        delayTimer = 0;
-//        while (delayTimer < 500) {
-//          while (Serial1.available()) gps.encode(Serial1.read());
-//          sendCANmessages();
-//        }
+ 
         rightMotor = stopMotorValue;
         leftMotor = stopMotorValue;
-
-
+ 
         mode6started = false;
       }
     }
@@ -1507,9 +1452,9 @@ void resetOutputs() {
 void displayMode0() {
   if (modeDisplayTimer >= modeDisplayTime) {
     modeDisplayTimer = 0;
-    sprintf(topLine, "%i OFF  Sats:%2i ", mode, goalSpeed);
+    sprintf(topLine, "%i OFF    Sats:%2i", mode, gps.satellites.value());
     displayTopLine(topLine);
-    sprintf(message, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
+    sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
     displayBottomLine(botLine);
   }
 }
@@ -1520,7 +1465,7 @@ void displayMode1() {
     sprintf(topLine, "%i Manual Spd:%3.1f", mode, goalSpeed);
     displayTopLine(topLine);
     
-    if (mode1started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    if (mode1started) sprintf(botLine, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
     else strncpy(botLine, "Butn+Up to Start", 16);
     
     displayBottomLine(botLine);
@@ -1533,7 +1478,7 @@ void displayMode2() {
     sprintf(topLine, "%i Turn90  E:%3i ", mode, int(endAngle)); 
     displayTopLine(topLine);
     
-    if (mode2started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    if (mode2started) sprintf(botLine, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
     else strncpy(botLine, "Butn+Up to Start", 16);
     
     displayBottomLine(botLine);
@@ -1546,7 +1491,7 @@ void displayMode3() {
     sprintf(topLine, "%i Anch C%3i D%3i", mode, int(courseToFixPoint),int(distanceToFixPoint)); 
     displayTopLine(topLine);
     
-    if (mode3started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    if (mode3started) sprintf(botLine, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
     else strncpy(botLine, "Butn+Up to Start", 16);
     
     displayBottomLine(botLine);
@@ -1559,7 +1504,7 @@ void displayMode4() {
     sprintf(topLine, "%i Fig8 E%3i D%3i", mode, int(endAngle),int(distanceToFixPoint)); 
     displayTopLine(topLine);
     
-    if (mode4started) sprintf(message, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    if (mode4started) sprintf(botLine, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
     else strncpy(botLine, "Butn+Up to Start", 16);
     
     displayBottomLine(botLine);
@@ -1572,7 +1517,7 @@ void displayMode5() {
     sprintf(topLine, "%i Full Spd:%4.1f", mode,ekfSpeed); //motorInput is the value sent to the motors.
     displayTopLine(topLine);
     
-    if (mode5started) sprintf(message, "H:%3i YawRt:%4.1f", int(ekfYawAngle), ekfYawRate);
+    if (mode5started) sprintf(botLine, "H:%3i YawRt:%4.1f", int(ekfYawAngle), ekfYawRate);
     else strncpy(botLine, "Butn+Up to Start", 16);
     
     displayBottomLine(botLine);
@@ -1585,7 +1530,7 @@ void displayMode6() {
     sprintf(topLine, "%i Calib.  Up2Set", mode); //motorInput is the value sent to the motors.
     displayTopLine(topLine);
     
-    if (mode6started) sprintf(message, "Turn:%4i Hdg:%3i", int(totalTurn), int(compassHeading));
+    if (mode6started) sprintf(botLine, "Turn:%4i Hdg:%3i", int(totalTurn), int(compassHeading));
     else strncpy(botLine, "Butn+Up to Start", 16);
     
     displayBottomLine(botLine);
@@ -1640,7 +1585,7 @@ void displayTopLine(char _topLine[17]){
   char message[9];
   for (int j = 0; j < 8; j++) message[j] = _topLine[j];
   displayUpperLeft8(message);
-  for (int j = 8; j < 16; j++) message[j] = _topLine[j];
+  for (int j = 8; j < 16; j++) message[j-8] = _topLine[j];
   displayUpperRight8(message);
 }
 
@@ -1648,7 +1593,7 @@ void displayBottomLine(char _botLine[17]){
   char message[9];
   for (int j = 0; j < 8; j++) message[j] = _botLine[j];
   displayLowerLeft8(message);
-  for (int j = 8; j < 16; j++) message[j] = _botLine[j];
+  for (int j = 8; j < 16; j++) message[j-8] = _botLine[j];
   displayLowerRight8(message);
 }
 /* END DISPLAY HELPER FUNCTIONS */
