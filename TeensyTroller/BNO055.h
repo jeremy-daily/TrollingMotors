@@ -221,21 +221,21 @@ void BNOwrite(int reg, uint8_t val){
   Wire.endTransmission();
 }
 
-void BNOgetYawRate(){
+double BNOgetYawRate(){
   byte gyroMSB = BNOread(BNO055_GYRO_DATA_Z_MSB_ADDR);
   byte gyroLSB = BNOread(BNO055_GYRO_DATA_Z_LSB_ADDR);
   int16_t tempGyro = word(gyroMSB,gyroLSB);
-  yawRate = tempGyro * gyroScaleFactor + gyroOffset; //This is from 125 deg/second range 125/2^15 and subtracting off an average
+  return tempGyro * gyroScaleFactor + gyroOffset; //This is from 125 deg/second range 125/2^15 and subtracting off an average
   //Serial.println(yawRate,8);
 }
 
-void BNOgetYawAngle(){
-  byte eulerMSB = BNOread(BNO055_EULER_H_MSB_ADDR);
-  byte eulerLSB = BNOread(BNO055_EULER_H_LSB_ADDR);
-  int16_t tempEuler = word(eulerMSB,eulerLSB);
-  yawAngle = tempEuler * headingScaleFactor + headingOffset; //This is from 125 deg/second range 125/2^15 and subtracting off an average
-  //Serial.println(yawRate,8);
-}
+//void BNOgetYawAngle(){
+//  byte eulerMSB = BNOread(BNO055_EULER_H_MSB_ADDR);
+//  byte eulerLSB = BNOread(BNO055_EULER_H_LSB_ADDR);
+//  int16_t tempEuler = word(eulerMSB,eulerLSB);
+//  yawAngle = tempEuler * headingScaleFactor + headingOffset; 
+//  //Serial.println(yawRate,8);
+//}
 
 double BNOgetAccelX(){
   byte accelMSB = BNOread(BNO055_ACCEL_DATA_Y_MSB_ADDR ); //Change these to match the compass in the teensy troller

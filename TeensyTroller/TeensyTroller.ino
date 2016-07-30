@@ -25,7 +25,7 @@ double angleD = 25;
 
 //These still need tuned, but they seem to work.
 double speedK = .1;
-double speedI = .01;
+double speedI = .3;
 double speedD = 0;
 
 
@@ -104,18 +104,11 @@ double ekfYawRate;
 double ekfSpeed;
 double ekfAccel;
 
-
 char topLine[17];
 char botLine[17];
 
-
-
 double gyroScaleFactor = 0.003814697265625; //Set to 125deg/s / 2^15
 double gyroOffset = -0.122513335; //Used to zero out the rate gyro when it is still. Uses a longterm average.
-
-double headingScaleFactor = 1; //
-double headingOffset = 0; //
-
 
 double biasSetting = 1.05; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
 
@@ -152,8 +145,6 @@ byte gpsFix   = 0;
 int dist;
 double distK = 0.2;
 
-double waypoints[100][2];
-int waypointIndex;
 const int stopMotorValue = 92;
 const int maxRevMotorValue = 8;
 const int maxFwdMotorValue = 208;
@@ -168,12 +159,13 @@ elapsedMillis CANaliveTimer;
 elapsedMillis speedSettingTimer;
 elapsedMillis broadcastCANmodeTimer;
 elapsedMillis courseSettingTimer;
-elapsedMillis compassReadingTimer;
 elapsedMillis gyroReadingTimer;
 elapsedMillis delayTimer;
 elapsedMillis sineSweepTimer;
 elapsedMillis anchorAdjustTimer;
 elapsedMillis fig8timer;
+elapsedMillis turnTimer;
+elapsedMillis resetCompassTimer;
 
 const int modeDisplayTime = 80;
 
@@ -440,72 +432,26 @@ void setup() {
 
 
   displayTemplate(); //tft display
-  Serial.print("Compass");
-  Serial.print("\t");
-  Serial.print("ekfCompass");
-  Serial.print("\t");
-  Serial.print("rateGyro");
-  Serial.print("\t");
-  Serial.print("ekfRateGyro");
-  Serial.print("GPSspeed");
-  Serial.print("\t");
-  Serial.print("ekfSpeed");
-  Serial.print("\t");
-  Serial.print("Accel");
-  Serial.print("\t");
-  Serial.println("ekfAccel");
+//  Serial.print("Compass");
+//  Serial.print("\t");
+//  Serial.print("ekfCompass");
+//  Serial.print("\t");
+//  Serial.print("rateGyro");
+//  Serial.print("\t");
+//  Serial.print("ekfRateGyro");
+//  Serial.print("GPSspeed");
+//  Serial.print("\t");
+//  Serial.print("ekfSpeed");
+//  Serial.print("\t");
+//  Serial.print("Accel");
+//  Serial.print("\t");
+//  Serial.println("ekfAccel");
     
 }
 
-void resetCompassOffset() {
-  if (ekfSpeed > 15.0 && abs(yawRate) < 1.0 && needsRealigned ) //compass heading can be realigned to velocity vector
-  {
-    needsRealigned =false;
-    if (gps.course.deg() >= 270 && ekfYawAngle <= 90)
-    {
-      compassOffset = gps.course.deg() - ekfYawAngle + 360;
-      CANcompassOffset = gps.course.deg() - CANheading + 360;
-    }
-    else if (gps.course.deg() <= 90 && ekfYawAngle >= 270)
-    {
-      compassOffset = gps.course.deg() - ekfYawAngle - 360;
-      CANcompassOffset = gps.course.deg() - CANheading - 360;
-    }
-    else
-    {
-      compassOffset = gps.course.deg() - ekfYawAngle;
-      CANcompassOffset = gps.course.deg() - CANheading;
-    }
-    Serial.print("Setting Compass Offsets Based on GPS heading: compassOffset = ");
-    Serial.print(compassOffset);
-    Serial.print(", CANcompassOffset = ");
-    Serial.println(CANcompassOffset);
-
-    EEPROM.put(compassOffsetAddress,compassOffset);
-    EEPROM.put(CANcompassOffsetAddress,CANcompassOffset);
-    
-
-    
-  }
-}
-
-
-
-
-void make90rightWaypoints() {
-  double x0 = gps.location.lng();
-  double y0 = gps.location.lat();
-  double radius = 50; //meters
-  for (int i = 0; i < 100; i++) {
-    double newX = 0;
-    double newY = 0;
-
-    //    waypoints[i][2]={x0 + newX,y0 +newY};
-  }
-}
 
 void sendCANmessages() {
-  if (broadcastCANtimer >= 1000) {
+  if (broadcastCANtimer >= 200) {
     broadcastCANtimer = 0;
 
     //GPS Messages
@@ -695,6 +641,36 @@ void displayData() {
 
 
 void debugDataHeader() {
+  if (gps.date.isUpdated())
+  {
+    Serial.print(F("DATE       Fix Age="));
+    Serial.print(gps.date.age());
+    Serial.print(F("ms Raw="));
+    Serial.print(gps.date.value());
+    Serial.print(F(" Year="));
+    Serial.print(gps.date.year());
+    Serial.print(F(" Month="));
+    Serial.print(gps.date.month());
+    Serial.print(F(" Day="));
+    Serial.println(gps.date.day());
+  }
+
+  if (gps.time.isUpdated())
+  {
+    Serial.print(F("TIME       Fix Age="));
+    Serial.print(gps.time.age());
+    Serial.print(F("ms Raw="));
+    Serial.print(gps.time.value());
+    Serial.print(F(" Hour="));
+    Serial.print(gps.time.hour());
+    Serial.print(F(" Minute="));
+    Serial.print(gps.time.minute());
+    Serial.print(F(" Second="));
+    Serial.print(gps.time.second());
+    Serial.print(F(" Hundredths="));
+    Serial.println(gps.time.centisecond());
+  }
+  
   Serial.print("speedK\t");
   Serial.println(speedK);
   Serial.print("speedI\t");
@@ -711,60 +687,48 @@ void debugDataHeader() {
   Serial.print("mode\t");
   Serial.println(mode);
 
-
-  Serial.print("millis");
-  Serial.print("\t");
-  Serial.print("goalAngle");
-  Serial.print("\t");
-  Serial.print("ekfYawAngle");
-  Serial.print("\t");
-  Serial.print("difference");
-  Serial.print("\t");
-  Serial.print("integral");
-  Serial.print("\t");
-  Serial.print("ekfYawRate");
-  Serial.print("\t");
-  Serial.print("angleSetting");
-  Serial.print("\t");
-  Serial.print("goalSpeed");
-  Serial.print("\t");
-  Serial.print("ekfSpeed");
-  Serial.print("\t");
-  Serial.print("speedSetting");
-  Serial.print("\t");
-  Serial.print("rightMotor");
-  Serial.print("\t");
-  Serial.print("leftMotor");
-  Serial.print("\t");
-  Serial.print("gps.course.deg()");
-  Serial.print("\t");
-  Serial.print("CANcompassHeading");
-  Serial.print("\t");
-  Serial.print("sats");
-  Serial.print("\t");
-  Serial.print("gps.altitude.feet()");
-  Serial.print("\t");
-  Serial.print("gps.location.lat");
-  Serial.print("\t");
-  Serial.print("gps.location.lng");
-  Serial.print("\t");
-  Serial.print("fixPointLat");
-  Serial.print("\t");
-  Serial.print("fixPointLon");
-  Serial.print("\t");
-  Serial.print("distanceToFixPoint");
-  Serial.print("\t");
-  Serial.print("courseToFixPoint");
-  Serial.print("\t");
+  Serial.print("Time [ms]\t");
+  Serial.print("goalAngle [deg]\t");
+  Serial.print("Compass [deg]\t");
+  Serial.print("ekfYawAngle[deg]\t");
+  Serial.print("difference [deg]\t");
+  Serial.print("integral [deg]\t");
+  Serial.print("rateGyro [deg/s]\t");
+  Serial.print("ekfYawRate [deg/s]\t");
+  Serial.print("angleSetting\t");
+  Serial.print("goalSpeed [mph]\t");
+  Serial.print("GPSspeed [mph]\t");
+  Serial.print("ekfSpeed [mph]\t");
+  Serial.print("Accel [mg]\t");
+  Serial.print("ekfAccel [mg]\t");
+  Serial.print("speedSetting\t");
+  Serial.print("rightMotor\t");
+  Serial.print("leftMotor\t");
+  Serial.print("GPS Course [deg]\t");
+  Serial.print("CANcompassHeading [deg]\t");
+  Serial.print("sats [num]\t");
+  Serial.print("GPS Altitude [ft]\t");
+  Serial.print("gps.location.lat\t");
+  Serial.print("gps.location.lng\t");
+  Serial.print("fixPointLat\t");
+  Serial.print("fixPointLon\t");
+  Serial.print("distanceToFixPoint [m]\t");
+  Serial.print("courseToFixPoint [deg]\t");
+  Serial.print("fig8phase\t");
+  Serial.print("fig8timer\t");
+  Serial.print("turnSetting\t");
   Serial.println("Frequency");
 
 }
 void debugData() {
   if (debugSerialtimer >= deltaTms) {
     debugSerialtimer = 0;
+\  
     Serial.print(millis());
     Serial.print("\t");
     Serial.print(goalAngle);
+    Serial.print("\t");
+    Serial.print(compassHeading);
     Serial.print("\t");
     Serial.print(ekfYawAngle);
     Serial.print("\t");
@@ -778,7 +742,13 @@ void debugData() {
     Serial.print("\t");
     Serial.print(goalSpeed);
     Serial.print("\t");
+    Serial.print(gps.speed.mph());
+    Serial.print("\t");
     Serial.print(ekfSpeed);
+    Serial.print("\t");
+    Serial.print(accelX);
+    Serial.print("\t");
+    Serial.print(ekfAccel);
     Serial.print("\t");
     Serial.print(speedSetting);
     Serial.print("\t");
@@ -806,16 +776,60 @@ void debugData() {
     Serial.print("\t");
     Serial.print(courseToFixPoint);
     Serial.print("\t");
-    Serial.print(omega, 6);
+    Serial.print(fig8phase);
     Serial.print("\t");
+    Serial.print(fig8timer);
+    Serial.print("\t");
+    Serial.print(turnSetting);
+    Serial.print("\t");
+    Serial.println(omega, 6);
+  }
+}
 
-    Serial.println(CANTXcount);
+
+void resetCompassOffset() {
+  uint8_t headingCount = 0;
+  double headingSum = 0;
+  double CANheadingSum = 0;
+  while (ekfSpeed > 15.0 && abs(yawRate) < 1.0 && needsRealigned ) //compass heading can be realigned to velocity vector
+  {
+    getMeasurements();
+    
+    if (resetCompassTimer >= 200)
+    {
+      resetCompassTimer=0;
+      headingSum += compass.heading/10.0;
+      CANheadingSum += CANheading;
+      headingCount +=1;
+      Serial.print(headingCount);
+      Serial.print("\t");
+      Serial.println(headingSum);
+    }
+    
+    if (headingCount >= 20){
+      needsRealigned =false;
+      compassOffset = gps.course.deg() - headingSum/headingCount;
+      CANcompassOffset = gps.course.deg() - CANheadingSum/headingCount;
+      
+      if (CANcompassOffset < 180) CANcompassOffset += 360;
+      if (CANcompassOffset > 180) CANcompassOffset -= 360;
+      if (compassOffset < 180) compassOffset += 360;
+      if (compassOffset > 180) compassOffset -= 360;
+          
+      Serial.print("Setting Compass Offsets Based on GPS heading: compassOffset = ");
+      Serial.print(compassOffset);
+      Serial.print(", CANcompassOffset = ");
+      Serial.println(CANcompassOffset);
+  
+      EEPROM.put(compassOffsetAddress,compassOffset);
+      EEPROM.put(CANcompassOffsetAddress,CANcompassOffset);
+    }   
   }
 }
 
 double getCompassHeading() {
   compass.readHeading();
-  tempHeading = compass.heading/10.0;// - compassOffset; //local compass
+  tempHeading = compass.heading/10.0 - compassOffset; //local compass
   CANcompassHeading = CANheading - CANcompassOffset;
 
   if (ekfYawAngle > 270 && tempHeading < 90) tempHeading += 360;
@@ -832,7 +846,7 @@ void getMeasurements() {
   if (gyroReadingTimer >= deltaTms) {
     gyroReadingTimer = 0;
 
-    BNOgetYawRate();
+    yawRate = BNOgetYawRate();
     compassHeading = getCompassHeading();
     
     accelX = BNOgetAccelX();
@@ -913,17 +927,58 @@ void loop() {
       }
       if (courseSettingTimer > courseSetTime) {
         courseSettingTimer = 0;
-        if (leftButtonState){
-          goalAngle -= 1;
-          //memset(differenceList, 0, sizeof(differenceList)) ;
-          turnSetting = -60;
+        if (leftButtonState && pushButtonState){
+          endAngle = goalAngle - 90;
         }
-        if (rightButtonState) {
+        else if (leftButtonState){
+          goalAngle -= 1;
+          turnSetting = -60;
+          leftTurn = false;
+          rightTurn = false;
+        }
+        else if (leftButtonState && pushButtonState){
+          startAngle = ekfYawAngle;
+          turnTimer = 0;
+          leftTurn = true;
+          rightTurn = false;
+        }
+        else if (rightButtonState) {
           goalAngle += 1;
-          //memset(differenceList, 0, sizeof(differenceList)) ;
           turnSetting = 60;
+          leftTurn = false;
+          rightTurn = false;
+        }
+        else if (rightButtonState && pushButtonState){
+          startAngle = ekfYawAngle;
+          turnTimer = 0;
+          leftTurn = false;
+          rightTurn = true;
         }
       }
+      
+      if (rightTurn){//right turn slowly for 180 degrees at 1 deg/sec
+        if (turnTimer >= 180000){
+          leftTurn = false;
+          rightTurn = false;
+          turnSetting = 0;
+        }
+        else {
+          goalAngle = startAngle + turnTimer/1000.0; //turn rate of 1 deg/second
+          turnSetting = 10; //feed forward
+        }
+      }
+      else if (leftTurn){//right turn slowly for 180 degrees at 1 deg/sec
+        if (turnTimer >= 180000){
+          leftTurn = false;
+          rightTurn = false;
+          turnSetting = 0;
+        }
+        else {
+          goalAngle = startAngle - turnTimer/1000.0; //turn rate of 1 deg/second
+          turnSetting = -10; //feed forward
+        }
+      }
+      
       calculateMotorOutput();
 
 
@@ -931,22 +986,27 @@ void loop() {
     else
     {
       speedSetting = 0;
-      goalAngle = compassHeading;
+      goalAngle = ekfYawAngle;
       rightMotor = stopMotorValue;
       leftMotor = stopMotorValue;
+      leftTurn = false;
+      rightTurn = false;
     }
 
     if (upButtonState && pushButtonState) {
       mode1started = true;
-      speedSetting = 0;
       goalAngle = ekfYawAngle;
       memset(differenceList, 0, sizeof(differenceList)) ;
-
+      leftTurn = false;
+      rightTurn = false;
+      turnSetting = 0;
     }
     if (downButtonState && pushButtonState) {
       memset(differenceSpeedList, 0, sizeof(differenceSpeedList));
-      speedSetting = 0;
       goalSpeed = 0;
+      goalAngle = ekfYawAngle;
+      leftTurn = false;
+      rightTurn = false;
     }
 
   }
@@ -1038,20 +1098,20 @@ void loop() {
       if (anchorAdjustTimer > 300){
           anchorAdjustTimer = 0;
           if (upButtonState ) {
-             fixPointLat +=  (10.0/111030.0)*sin(radians(compassHeading));
-             fixPointLon += (10.0/111030.0)*cos(radians(compassHeading));
+             fixPointLat +=  (10.0/111030.0)*sin(radians(ekfYawAngle));
+             fixPointLon += (10.0/111030.0)*cos(radians(ekfYawAngle));
           }
           else if (downButtonState ) {
-             fixPointLat -= (10.0/111030.0)*sin(radians(compassHeading));
-             fixPointLon -= (10.0/80000.0)*cos(radians(compassHeading));
+             fixPointLat -= (10.0/111030.0)*sin(radians(ekfYawAngle));
+             fixPointLon -= (10.0/80000.0)*cos(radians(ekfYawAngle));
           }
           if (leftButtonState ) {
-             fixPointLat += (10.0/111030.0)*cos(radians(compassHeading));
-             fixPointLon += (10.0/80000.0)*sin(radians(compassHeading));
+             fixPointLat += (10.0/111030.0)*cos(radians(ekfYawAngle));
+             fixPointLon += (10.0/80000.0)*sin(radians(ekfYawAngle));
           }
           else if (rightButtonState ) {
-             fixPointLat -= (10.0/111030.0)*cos(radians(compassHeading));
-             fixPointLon -= (10.0/80000.0)*sin(radians(compassHeading));
+             fixPointLat -= (10.0/111030.0)*cos(radians(ekfYawAngle));
+             fixPointLon -= (10.0/80000.0)*sin(radians(ekfYawAngle));
           }
       }
    
@@ -1252,40 +1312,43 @@ void loop() {
       totalTurn = 0;
       lastAngle = compassHeading;
     }
-    else if (upButtonState && !pushButtonState) {
-      if (gps.location.isUpdated() && ekfSpeed > 10){
-      
-        compass.readHeading();
-        int  deviation =  compass.heading - gps.course.deg() * 10; // Not sure if this is the correct deviation method.
-        compass.writeEEPROM(0x0A, lowByte(deviation)); //LSB of deviation
-        delay(10);
-        compass.writeEEPROM(0x0B, highByte(deviation)); //MSB of deviation
-        delay(10);
-      
-        compass.reset();
-        delayTimer = 0;
-        while (delayTimer < 500) {
-          while (Serial1.available()) gps.encode(Serial1.read());
-          sendCANmessages();
-        }
-      }
-    }
-    else if (downButtonState && pushButtonState) {
-      
-      compass.writeEEPROM(0x0A, 0x00); //clear deviation
-      delay(10);
-      compass.writeEEPROM(0x0B, 0x00);
-      delay(10);
-      compass.reset();
 
-      delayTimer = 0;
-      while (delayTimer < 500) {
-        while (Serial1.available()) gps.encode(Serial1.read());
-        sendCANmessages();
-      }
-            
-      
-    }
+//Uncomment to enable a 
+    
+//    else if (upButtonState && !pushButtonState) {
+//      if (gps.speed.isUpdated() && ekfSpeed > 10){
+//      
+//        compass.readHeading();
+//        int  deviation =  compass.heading - gps.course.deg() * 10; // Not sure if this is the correct deviation method.
+//        compass.writeEEPROM(0x0A, lowByte(deviation)); //LSB of deviation
+//        delay(10);
+//        compass.writeEEPROM(0x0B, highByte(deviation)); //MSB of deviation
+//        delay(10);
+//      
+//        compass.reset();
+//        delayTimer = 0;
+//        while (delayTimer < 500) {
+//          while (Serial1.available()) gps.encode(Serial1.read());
+//          sendCANmessages();
+//        }
+//      }
+//    }
+//    else if (downButtonState && pushButtonState) {
+//      
+//      compass.writeEEPROM(0x0A, 0x00); //clear deviation
+//      delay(10);
+//      compass.writeEEPROM(0x0B, 0x00);
+//      delay(10);
+//      compass.reset();
+//
+//      delayTimer = 0;
+//      while (delayTimer < 500) {
+//        while (Serial1.available()) gps.encode(Serial1.read());
+//        sendCANmessages();
+//      }
+//            
+//      
+//    }
 
 
     displayMode6();
@@ -1321,6 +1384,7 @@ void loop() {
         mode6started = false;
       }
     }
+    
     else
     {
       rightMotor = stopMotorValue;
@@ -1475,7 +1539,7 @@ void displayMode1() {
 void displayMode2() {
   if (modeDisplayTimer >= modeDisplayTime) {
     modeDisplayTimer = 0;
-    sprintf(topLine, "%i Turn90  E:%3i ", mode, int(endAngle)); 
+    sprintf(topLine, "%i Turn90 Spd:%3.1f", mode, goalSpeed); 
     displayTopLine(topLine);
     
     if (mode2started) sprintf(botLine, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
@@ -1501,10 +1565,10 @@ void displayMode3() {
 void displayMode4() {
   if (modeDisplayTimer >= modeDisplayTime) {
     modeDisplayTimer = 0;
-    sprintf(topLine, "%i Fig8 E%3i D%3i", mode, int(endAngle),int(distanceToFixPoint)); 
+    sprintf(topLine, "Fig8 S:%3.1f D:%3i", goalSpeed,int(distanceToFixPoint)); 
     displayTopLine(topLine);
     
-    if (mode4started) sprintf(botLine, "H:%3i G:%3i S%2.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
+    if (mode4started) sprintf(botLine, "H:%3i G:%3i S%3.1f", int(ekfYawAngle), int(goalAngle), ekfSpeed);
     else strncpy(botLine, "Butn+Up to Start", 16);
     
     displayBottomLine(botLine);
@@ -1639,7 +1703,7 @@ void  calculateMotorOutput() {
 
       double integralSpeed = double(speedSum) / 1000.0 * deltaT;
 
-      speedSetting += int(speedK * speedDifference + speedI * integralSpeed);
+      speedSetting = int(speedK * speedDifference + speedI * integralSpeed);
 
     }
 
