@@ -9,15 +9,15 @@
 #include <TinyGPS++.h> // Used to read the data from the GPS.
 #include <FlexCAN.h> // The CAN library for the Teensy used to communicate with the Joystick
 #include "SPI.h" //Serial Peripherial Interface
-#include "ILI9341_t3.h" // The library for the TFT display for the Teensy 3.2
+//#include "ILI9341_t3.h" // The library for the TFT display for the Teensy 3.2
 #include  <i2c_t3.h> // the I2C library that replaces Wire.h for the Teensy 3.2
 #include <SFE_HMC6343.h> //Sparkfun's library for the digital compass
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
+
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
-
-double compassOffset = -14;// True - measured, so measured + offset = true
+double compassOffset = -10.8;// True - measured, so measured + offset = true
 
 
 //PID Gain Constants. Tune these for best results.
@@ -59,7 +59,7 @@ class Fuser : public TinyEKF {
       this->setR(0, 0, 1.5); //Varianance of the noise from the Compass (deg)^2
       this->setR(1, 1, .002); //Variance of the noise from the rate gyro (deg/s)^2
       this->setR(2, 2, .05); //Noise from the GPS speed
-      this->setR(3, 3, .02); //Noise from the accelerometer
+      this->setR(3, 3, .05); //Noise from the second GPS
 
     }
 
@@ -105,7 +105,7 @@ Fuser ekf;
 double ekfYawAngle;
 double ekfYawRate;
 double ekfSpeed;
-double ekfAccel;
+//double ekfAccel;
 
 char topLine[17];
 char botLine[17];
@@ -113,7 +113,7 @@ char botLine[17];
 double gyroScaleFactor = 0.003814697265625; //Set to 125deg/s / 2^15
 double gyroOffset = -0.122513335; //Used to zero out the rate gyro when it is still. Uses a longterm average.
 
-double biasSetting = 1.05; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
+double biasSetting = 1.00; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
 
 uint8_t headingCount = 0;
 double headingSum = 0;
@@ -131,6 +131,7 @@ const uint32_t deltaTms = 50; //milliseconds for calculations and output
 double yawOffset = 0;
 double CANcompassOffset = 0;
 boolean needsRealigned  = true;
+boolean needsToPrint = true;
 
 double CANheading;
 double CANcompassHeading;
@@ -159,7 +160,7 @@ const int maxFwdMotorValue = 208;
 elapsedMillis calculateMotorOutputTimer; // this is interrupt based
 elapsedMillis broadcastCANtimer; //set up intervals
 elapsedMillis waitingForCANtimer;
-elapsedMillis printTFTtimer;
+//elapsedMillis printTFTtimer;
 elapsedMillis debugSerialtimer;
 elapsedMillis modeDisplayTimer;
 elapsedMillis CANaliveTimer;
@@ -167,17 +168,17 @@ elapsedMillis speedSettingTimer;
 elapsedMillis broadcastCANmodeTimer;
 elapsedMillis courseSettingTimer;
 elapsedMillis gyroReadingTimer;
-elapsedMillis delayTimer;
-elapsedMillis sineSweepTimer;
-elapsedMillis anchorAdjustTimer;
+//elapsedMillis delayTimer;
+//elapsedMillis sineSweepTimer;
+//elapsedMillis anchorAdjustTimer;
 elapsedMillis fig8timer;
 elapsedMillis turnTimer;
 elapsedMillis resetCompassTimer;
 
-const int modeDisplayTime = 80;
+//const int modeDisplayTime = 80;
 
 const int speedSetTime = 150; //set how quickly the speed changes.
-const int courseSetTime = 150; //set how quickly the speed changes.
+const int courseSetTime = 150; //set how quickly the Course inputs changes.
 
 boolean mode1started = false;
 boolean mode2started = false;
@@ -189,7 +190,7 @@ boolean mode7started = false;
 
 byte mode = 0;
 byte currentMode = 0;
-byte numberOfModes = 7; //This limits the number of displayed modes.
+byte numberOfModes = 5; //This limits the number of displayed modes.
 byte fig8phase = 0;
 
 boolean rightButtonState = LOW;
@@ -231,7 +232,7 @@ TinyGPSPlus gps;
 #define TFT_DC 20
 #define TFT_CS 21
 // initialize the display
-ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC);
+//ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC);
 
 SFE_HMC6343 compass; // Declare the sensor object
 
@@ -269,14 +270,14 @@ void setup() {
   Serial.begin(115200); //debug console
   delay(500);
 
-  tft.begin();
-  tft.fillScreen(ILI9341_BLACK);
-  tft.setTextColor(ILI9341_YELLOW);
-  tft.setTextSize(3);
-  tft.print("Setting Up...");
+  //tft.begin();
+  //tft.fillScreen(ILI9341_BLACK);
+  //tft.setTextColor(ILI9341_YELLOW);
+  //tft.setTextSize(3);
+  //tft.print("Setting Up...");
   Serial.println("Welcome to the Teensy Troller. We will get setup first.");
 
-  tft.println("Starting IMU");
+  //tft.println("Starting IMU");
   Serial.print("Starting Bosch BNO055 IMU Sensor... ");
   uint8_t gyroConfig = 0;
   while (gyroConfig != 0b00101100) {
@@ -353,13 +354,13 @@ void setup() {
 
   Serial.print("Starting Servos... ");
 
-  tft.print("Starting Srvo");
+  //tft.print("Starting Srvo");
   rightServo.attach(16);  // attaches the servo on pin 16 to the servo object
   leftServo.attach(23);  // attaches the servo on pin 23 to the servo object
   Serial.println("Done.");
 
   Serial.print("Starting GPS... ");
-  tft.println("Starting GPS");
+  //tft.println("Starting GPS");
   Serial1.begin(9600);
   delay(300);
   Serial1.println("$PMTK251,57600*2C"); //Set Baud Rate to 57600
@@ -382,12 +383,12 @@ void setup() {
 
 
   Serial.println("Starting Compass... ");
-  tft.print("Starting Comp");
+  //tft.print("Starting Comp");
   compass.init();
   byte bSN_LSB = compass.readEEPROM(SN_LSB);
   byte bSN_MSB = compass.readEEPROM(SN_MSB);
-  tft.print("S/N:");
-  tft.println(word(bSN_MSB, bSN_LSB));
+  //tft.print("S/N:");
+  //tft.println(word(bSN_MSB, bSN_LSB));
   Serial.print("Compass Serial Number: ");
   Serial.println(word(bSN_MSB, bSN_LSB));
   compass.writeEEPROM(0x14, 0x00); //Set filter to 0.
@@ -395,7 +396,7 @@ void setup() {
   delay(100);
   Serial.println("\nDone.");
 
-  tft.println("Starting CAN");
+  //tft.println("Starting CAN");
   delay(100);
   CANbus.begin();
 
@@ -427,7 +428,7 @@ void setup() {
   CANbus.write(txmsg);
   delay(50);
 
-  tft.print("CAN msgs sent");
+  //tft.print("CAN msgs sent");
 
   delay(100);
   EEPROM.get(compassOffsetAddress, compassOffset);
@@ -440,7 +441,7 @@ void setup() {
 
 
 
-  displayTemplate(); //tft display
+//  displayTemplate(); //tft display
   //  Serial.print("Compass");
   //  Serial.print("\t");
   //  Serial.print("ekfCompass");
@@ -460,29 +461,29 @@ void setup() {
 
 
 void sendCANmessages() {
-  if (broadcastCANtimer >= 200) {
-    broadcastCANtimer = 0;
+//  if (broadcastCANtimer >= 200) {
+//    broadcastCANtimer = 0;
+//
+//    //GPS Messages
+//    if (gps.speed.isUpdated() ) {
+//      txmsg.id = 0x43e;
+//      txmsg.len = 8;
+//
+//      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
+//      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
+//      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
+//      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
+//      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
+//      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
+//      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
+//      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
+//
+//      CANbus.write(txmsg);
+//      CANTXcount++;
+//    }
+//  }
 
-    //GPS Messages
-    if (gps.speed.isUpdated() ) {
-      txmsg.id = 0x43e;
-      txmsg.len = 8;
-
-      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
-      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
-      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
-      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
-      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
-      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
-      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
-      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
-
-      CANbus.write(txmsg);
-      CANTXcount++;
-    }
-  }
-
-  if (broadcastCANmodeTimer >= 100) {
+  if (broadcastCANmodeTimer >= deltaTms) {
     broadcastCANmodeTimer = 0;
     txmsg.id = 0x210;
     txmsg.len = 8;
@@ -506,7 +507,6 @@ void sendCANmessages() {
 void readCANmessages() {
   while ( CANbus.read(rxmsg) ) {
     waitingForCANtimer = 0; //reset the can message timeout
-    CANRXcount++;
     ID = rxmsg.id;
     if (ID == 0x700) {
       CANaliveTimer = 0;
@@ -537,119 +537,94 @@ void readCANmessages() {
   }
 }
 
-
+/*
 void displayTemplate() {
-  tft.fillScreen(ILI9341_BLACK);
-  tft.setCursor(0, 0);
-  tft.print("Mode:X Sat:XX");
+  //tft.fillScreen(ILI9341_BLACK);
+  //tft.setCursor(0, 0);
+  //tft.print("Mode:X Sat:XX");
 
-  tft.setCursor(0, 30);
-  tft.print("Heading:  XXX");
+  //tft.setCursor(0, 30);
+  //tft.print("Heading:  XXX");
 
-  tft.setCursor(0, 60);
-  tft.print("CAN Angle:XXX");
+  //tft.setCursor(0, 60);
+  //tft.print("CAN Angle:XXX");
 
-  tft.setCursor(0, 90);
-  tft.print("GPS Headn:XXX");
+  //tft.setCursor(0, 90);
+  //tft.print("GPS Headn:XXX");
 
-  tft.setCursor(0, 120);
-  tft.print("GoalAngle:XXX");
+  //tft.setCursor(0, 120);
+  //tft.print("GoalAngle:XXX");
 
-  tft.setCursor(0, 150);
-  tft.print("GPSSpeed:XX.X");
+  //tft.setCursor(0, 150);
+  //tft.print("GPSSpeed:XX.X");
 
-  tft.setCursor(0, 180);
-  tft.print("GoalSpeed:X.X");
+  //tft.setCursor(0, 180);
+  //tft.print("GoalSpeed:X.X");
 
-  tft.setCursor(0, 210);
-  tft.print("LeftMotor:XXX");
+  //tft.setCursor(0, 210);
+  //tft.print("LeftMotor:XXX");
 
-  tft.setCursor(0, 240);
-  tft.print("RghtMotor:XXX");
+  //tft.setCursor(0, 240);
+  //tft.print("RghtMotor:XXX");
 
-  tft.setCursor(0, 270);
-  tft.print("YawRate:XXX.X");
+  //tft.setCursor(0, 270);
+  //tft.print("YawRate:XXX.X");
 
 
 }
+
 
 void displayData() {
   if (printTFTtimer > 250) {
     printTFTtimer = 0;
 
-    if (downButtonState) tft.fillRect(0, 310, 240, 10, ILI9341_WHITE);
-    else tft.fillRect(0, 310, 240, 30, ILI9341_BLACK);
-    //    if (upButtonState) tft.fillRect(0, 0, 240, 10, ILI9341_WHITE);
-    //    else tft.fillRect(0, 0, 240, 10, ILI9341_BLACK);
-    //    if (rightButtonState) tft.fillRect(230, 0, 10, 320, ILI9341_RED);
-    //    else tft.fillRect(230, 0, 10, 320, ILI9341_BLACK);
-    //    if (leftButtonState) tft.fillRect(0, 0, 10, 320, ILI9341_GREEN);
-    //    else tft.fillRect(0, 0, 10, 320, ILI9341_BLACK);
-    //if (pushButtonState) tft.fillRect(100, 120, 40, 40, ILI9341_WHITE);
-    //else tft.fillRect(100, 120, 40, 40, ILI9341_BLACK);
+    if (downButtonState) //tft.fillRect(0, 310, 240, 10, ILI9341_WHITE);
+    else //tft.fillRect(0, 310, 240, 30, ILI9341_BLACK);
+    //    if (upButtonState) //tft.fillRect(0, 0, 240, 10, ILI9341_WHITE);
+    //    else //tft.fillRect(0, 0, 240, 10, ILI9341_BLACK);
+    //    if (rightButtonState) //tft.fillRect(230, 0, 10, 320, ILI9341_RED);
+    //    else //tft.fillRect(230, 0, 10, 320, ILI9341_BLACK);
+    //    if (leftButtonState) //tft.fillRect(0, 0, 10, 320, ILI9341_GREEN);
+    //    else //tft.fillRect(0, 0, 10, 320, ILI9341_BLACK);
+    //if (pushButtonState) //tft.fillRect(100, 120, 40, 40, ILI9341_WHITE);
+    //else //tft.fillRect(100, 120, 40, 40, ILI9341_BLACK);
 
     char dispVal[14];
 
 
-    tft.fillRect(90, 0, 20, 30, ILI9341_BLACK);
-    tft.setCursor(90, 0);
-    tft.print(mode);
+    //tft.fillRect(90, 0, 20, 30, ILI9341_BLACK);
+    //tft.setCursor(90, 0);
+    //tft.print(mode);
 
-    tft.fillRect(198, 0, 42, 30, ILI9341_BLACK);
-    tft.setCursor(198, 0);
+    //tft.fillRect(198, 0, 42, 30, ILI9341_BLACK);
+    //tft.setCursor(198, 0);
     sprintf(dispVal, "%2i", int(gps.satellites.value()));
-    tft.print(dispVal);
+    //tft.print(dispVal);
 
-    tft.fillRect(180, 30, 60, 30, ILI9341_BLACK);
-    tft.setCursor(180, 30);
+    //tft.fillRect(180, 30, 60, 30, ILI9341_BLACK);
+    //tft.setCursor(180, 30);
     sprintf(dispVal, "%3i", int(ekfYawAngle));
-    tft.print(dispVal);
+    //tft.print(dispVal);
 
-    tft.fillRect(180, 60, 60, 30, ILI9341_BLACK);
-    tft.setCursor(180, 60);
+    //tft.fillRect(180, 60, 60, 30, ILI9341_BLACK);
+    //tft.setCursor(180, 60);
     sprintf(dispVal, "%3i", int(CANcompassHeading));
-    tft.print(dispVal);
+    //tft.print(dispVal);
 
-    tft.fillRect(180, 90, 60, 30, ILI9341_BLACK);
-    tft.setCursor(180, 90);
-    sprintf(dispVal, "%3i", int(gps.course.deg()));
-    tft.print(dispVal);
+    //tft.fillRect(180, 90, 60, 30, ILI9341_BLACK);
+    //tft.setCursor(180, 90);
+    //sprintf(dispVal, "%3i", int(gps.course.deg()));
+    //tft.print(dispVal);
 
-    tft.fillRect(180, 120, 60, 30, ILI9341_BLACK);
-    tft.setCursor(180, 120);
-    sprintf(dispVal, "%3i", int(goalAngle));
-    tft.print(dispVal);
-
-    tft.fillRect(162, 150, 78, 30, ILI9341_BLACK);
-    tft.setCursor(162, 150);
-    sprintf(dispVal, "%4.1f", ekfSpeed);
-    tft.print(dispVal);
-
-    tft.fillRect(180, 180, 60, 30, ILI9341_BLACK);
-    tft.setCursor(180, 180);
-    sprintf(dispVal, "%3.1f", goalSpeed);
-    tft.print(dispVal);
-
-
-    tft.fillRect(180, 210, 60, 30, ILI9341_BLACK);
-    tft.setCursor(180, 210);
-    sprintf(dispVal, "%3i", int(leftMotor));
-    tft.print(dispVal);
-
-    tft.fillRect(180, 240, 60, 30, ILI9341_BLACK);
-    tft.setCursor(180, 240);
-    sprintf(dispVal, "%3i", int(rightMotor));
-    tft.print(dispVal);
-
-    tft.fillRect(144, 270, 96, 30, ILI9341_BLACK);
-    tft.setCursor(144, 270);
-    sprintf(dispVal, "%5.1f", ekfYawRate);
-    tft.print(dispVal);
+    //tft.fillRect(180, 120, 60, 30, ILI9341_BLACK);
+    //tft.setCursor(180, 120);
+    //sprintf(dispVal, "%3i", int(goalAngle));
+    //tft.pr-----------------------------------");
   }
 }
-
-
-void debugDataHeader() {
+*/
+    
+void debugDataHeader(){
   if (gps.date.isUpdated())
   {
     Serial.print("GPS Date\t");
@@ -685,40 +660,41 @@ void debugDataHeader() {
   Serial.println(angleD);
   Serial.print("mode\t");
   Serial.println(mode);
+  Serial.print("compassOffset\t");
+  Serial.println(compassOffset);
+  Serial.print("CANcompassOffset\t");
+  Serial.println(CANcompassOffset);
+  
 
   Serial.print("Time [ms]\t");
   Serial.print("goalAngle [deg]\t");
   Serial.print("Compass [deg]\t");
-  Serial.print("ekfYawAngle[deg]\t");
-  Serial.print("difference [deg]\t");
+  Serial.print("GPS Course [deg]\t");
+  Serial.print("CANcompassHeading [deg]\t");
+  Serial.print("ekfYawAngle\t");
   Serial.print("integral [deg]\t");
   Serial.print("rateGyro [deg/s]\t");
   Serial.print("ekfYawRate [deg/s]\t");
   Serial.print("angleSetting\t");
   Serial.print("goalSpeed [mph]\t");
   Serial.print("GPSspeed [mph]\t");
+  Serial.print("CANGPSspeed [mph]\t");
   Serial.print("ekfSpeed [mph]\t");
-  Serial.print("Accel [mg]\t");
-  Serial.print("ekfAccel [mg]\t");
+  Serial.print("speedAdjust\t");
   Serial.print("speedSetting\t");
   Serial.print("rightMotor\t");
   Serial.print("leftMotor\t");
-  Serial.print("GPS Course [deg]\t");
-  Serial.print("CANcompassHeading [deg]\t");
-  Serial.print("sats [num]\t");
-  Serial.print("GPS Altitude [ft]\t");
   Serial.print("gps.location.lat\t");
   Serial.print("gps.location.lng\t");
-  Serial.print("fixPointLat\t");
-  Serial.print("fixPointLon\t");
   Serial.print("distanceToFixPoint [m]\t");
   Serial.print("courseToFixPoint [deg]\t");
   Serial.print("fig8phase\t");
   Serial.print("fig8timer\t");
-  Serial.print("turnSetting\t");
-  Serial.println("Frequency");
+  Serial.println("turnSetting\t");
+  //Serial.println("Frequency");
 
 }
+
 void debugData() {
   if (debugSerialtimer >= deltaTms) {
     debugSerialtimer = 0;
@@ -729,11 +705,15 @@ void debugData() {
     Serial.print("\t");
     Serial.print(compassHeading);
     Serial.print("\t");
+    Serial.print(gps.course.deg());
+    Serial.print("\t");
+    Serial.print(CANcompassHeading);
+    Serial.print("\t");
     Serial.print(ekfYawAngle);
     Serial.print("\t");
-    Serial.print(difference, 3);
-    Serial.print("\t");
     Serial.print(integral, 3);
+    Serial.print("\t");
+    Serial.print(yawRate, 3);
     Serial.print("\t");
     Serial.print(ekfYawRate, 3);
     Serial.print("\t");
@@ -743,11 +723,11 @@ void debugData() {
     Serial.print("\t");
     Serial.print(gps.speed.mph());
     Serial.print("\t");
+    Serial.print(gpsSpeed);
+    Serial.print("\t");
     Serial.print(ekfSpeed);
     Serial.print("\t");
-    Serial.print(accelX);
-    Serial.print("\t");
-    Serial.print(ekfAccel);
+    Serial.print(speedAdjust);
     Serial.print("\t");
     Serial.print(speedSetting);
     Serial.print("\t");
@@ -755,21 +735,9 @@ void debugData() {
     Serial.print("\t");
     Serial.print(leftMotor);
     Serial.print("\t");
-    Serial.print(gps.course.deg());
-    Serial.print("\t");
-    Serial.print(CANcompassHeading);
-    Serial.print("\t");
-    Serial.print(gps.satellites.value());
-    Serial.print("\t");
-    Serial.print(gps.altitude.feet());
-    Serial.print("\t");
     Serial.print(gps.location.lat(), 8);
     Serial.print("\t");
     Serial.print(gps.location.lng(), 8);
-    Serial.print("\t");
-    Serial.print(fixPointLat, 8);
-    Serial.print("\t");
-    Serial.print(fixPointLon, 8);
     Serial.print("\t");
     Serial.print(distanceToFixPoint);
     Serial.print("\t");
@@ -779,9 +747,9 @@ void debugData() {
     Serial.print("\t");
     Serial.print(fig8timer);
     Serial.print("\t");
-    Serial.print(turnSetting);
-    Serial.print("\t");
-    Serial.println(omega, 6);
+    Serial.println(turnSetting);
+    //Serial.print("\t");
+    //Serial.println(omega, 6);
   }
 }
 
@@ -849,17 +817,17 @@ void getMeasurements() {
     yawRate = BNOgetYawRate();
     compassHeading = getCompassHeading();
 
-    accelX = BNOgetAccelX();
+   // accelX = BNOgetAccelX();
 
     // Send these measurements to the EKF
-    double z[M] = {compassHeading, yawRate, gps.speed.mph(), accelX};
+    double z[M] = {compassHeading, yawRate, gps.speed.mph(), gpsSpeed};
     if (mode != 6) ekf.step(z);
 
     // Report measured and predicted/fused values
     ekfYawAngle = ekf.getX(0);
     ekfYawRate = ekf.getX(1);
     ekfSpeed = ekf.getX(2);
-    ekfAccel = ekf.getX(3);
+   // ekfAccel = ekf.getX(3);
 
     //    Serial.print(z[0],4);
     //    Serial.print("\t");
@@ -899,7 +867,7 @@ void loop() {
   getMeasurements();
 
   //send stuff
-  displayData(); // Displays info on the TFT display
+  //displayData(); // Displays info on the TFT display
   sendCANmessages();
 
   if (mode != currentMode) {
@@ -910,12 +878,12 @@ void loop() {
   if (mode == 0) {
     displayMode0();
     resetCompassOffset();
-
   }
+
   //##############################################################################################
   //# Mode 1: Manual
   //##############################################################################################
-  else if (mode == 1 || mode == 2) { // Manual Mode
+  else if (mode == 1) { // Manual Mode
     displayMode1();
 
     if (mode1started) {
@@ -999,6 +967,13 @@ void loop() {
       leftTurn = false;
       rightTurn = false;
       turnSetting = 0;
+      fixPointLat = gps.location.lat();
+      fixPointLon = gps.location.lng();
+      Serial.print("fixPointLat\t");
+      Serial.println(fixPointLat, 10);
+      Serial.print("fixPointLon\t");
+      Serial.println(fixPointLon, 10);
+      
     }
     else if (downButtonState && pushButtonState) {
       memset(differenceSpeedList, 0, sizeof(differenceSpeedList));
@@ -1148,11 +1123,19 @@ void loop() {
   //##############################################################################################
   //##############################################################################################
 
-  else if (mode == 4 || mode == 3) { // figure 8
+  else if (mode == 2) { // figure 8
     if (upButtonState && pushButtonState) {
       mode4started = true;
       fixPointLat = gps.location.lat();
       fixPointLon = gps.location.lng();
+      
+      if (needsToPrint) {
+        needsToPrint = false;
+        Serial.print("fixPointLat\t");
+        Serial.println(fixPointLat, 10);
+        Serial.print("fixPointLon\t");
+        Serial.println(fixPointLon, 10);
+      }
 
       goalSpeed = 2.0;
       goalAngle = ekfYawAngle;
@@ -1170,10 +1153,11 @@ void loop() {
       if (speedSettingTimer > speedSetTime) {
         speedSettingTimer = 0;
         if (upButtonState && !pushButtonState) goalSpeed += 0.1; //mph
-        if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
+        else if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
         goalSpeed = constrain(goalSpeed, 0, 4);
         speedSetting = 22.0 * goalSpeed; //feed forward
       }
+      
       if (fig8phase == 0) { //forward for some seconds
         if (fig8timer >= 80000) {
           fig8timer = 0;
@@ -1181,8 +1165,8 @@ void loop() {
           startAngle = ekfYawAngle; //degrees
         }
       }
-      else if (fig8phase == 1) { //right turn slowly for 220 degrees at 1 deg/sec
-        if (fig8timer >= 220000) {
+      else if (fig8phase == 1) { //right turn slowly for 180 degrees at 1 deg/sec
+        if (fig8timer >= 180000) {
           fig8timer = 0;
           fig8phase = 2;
           turnSetting = 0;
@@ -1214,8 +1198,8 @@ void loop() {
           startAngle = ekfYawAngle; //degrees
         }
       }
-      else if (fig8phase == 4) { //right turn slowly for 220 degrees
-        if (fig8timer >= 220000) {
+      else if (fig8phase == 4) { //right turn slowly for 180 degrees
+        if (fig8timer >= 180000) {
           fig8timer = 0;
           fig8phase = 5;
           turnSetting = 0;
@@ -1269,7 +1253,7 @@ void loop() {
   //##############################################################################################
   //##############################################################################################
 
-  else if (mode == 5) { //Full
+  else if (mode == 3) { //Full
     if (upButtonState && pushButtonState) mode5started = true;
     displayMode5();
     debugData();
@@ -1312,8 +1296,7 @@ void loop() {
   //##############################################################################################
   //##############################################################################################
 
-  else if (mode == 6) { //Calibrate
-    debugData();
+  else if (mode == 4) { //Calibrate
     resetCompassOffset(); // only runs once
 
     if (upButtonState && pushButtonState) {
@@ -1391,7 +1374,7 @@ void loop() {
   }
 
 
-
+/*
   //##############################################################################################
   //# Mode 7: Frequency Sweep
   //##############################################################################################
@@ -1464,6 +1447,7 @@ void loop() {
     }
 
   }
+*/
 
   //////////////////////////////////////////////////Default
   else
@@ -1489,12 +1473,13 @@ void resetOutputs() {
   mode5started = false;
   mode6started = false;
   mode7started = false;
+  needsToPrint = true;
 
   compass.exitStandby();
 
-  tft.fillScreen(ILI9341_GREEN);
+  //tft.fillScreen(ILI9341_GREEN);
   delay(50);
-  displayTemplate();
+  //displayTemplate();
   currentMode = mode;
 
   //reset the integrator
@@ -1512,9 +1497,9 @@ void resetOutputs() {
 /*Display Modes*************************************************************************/
 
 void displayMode0() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
-    sprintf(topLine, "OFF o:%5.1f N:%2i", compassOffset, int(gps.satellites.value()));
+    sprintf(topLine, "OFF O:%5.1f N:%2i", compassOffset, int(gps.satellites.value()));
     displayTopLine(topLine);
     sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
     displayBottomLine(botLine);
@@ -1522,7 +1507,7 @@ void displayMode0() {
 }
 
 void displayMode1() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
     sprintf(topLine, "%i Manual Spd:%3.1f", mode, goalSpeed);
     displayTopLine(topLine);
@@ -1535,7 +1520,7 @@ void displayMode1() {
 }
 
 void displayMode2() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
     sprintf(topLine, "%i Turn90 Spd:%3.1f", mode, goalSpeed);
     displayTopLine(topLine);
@@ -1548,7 +1533,7 @@ void displayMode2() {
 }
 
 void displayMode3() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
     sprintf(topLine, "%i Anch C%3i D%3i", mode, int(courseToFixPoint), int(distanceToFixPoint));
     displayTopLine(topLine);
@@ -1561,7 +1546,7 @@ void displayMode3() {
 }
 
 void displayMode4() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
     sprintf(topLine, "Fig8 S:%3.1f D:%3i", goalSpeed, int(distanceToFixPoint));
     displayTopLine(topLine);
@@ -1574,7 +1559,7 @@ void displayMode4() {
 }
 
 void displayMode5() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
     sprintf(topLine, "%i Full Spd:%4.1f", mode, ekfSpeed); //motorInput is the value sent to the motors.
     displayTopLine(topLine);
@@ -1587,7 +1572,7 @@ void displayMode5() {
 }
 
 void displayMode6() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
     sprintf(topLine, "Cal. O:%3i H:%3i", int(compassOffset), int(compassHeading)); //motorInput is the value sent to the motors.
     displayTopLine(topLine);
@@ -1600,7 +1585,7 @@ void displayMode6() {
 }
 
 void displayMode7() {
-  if (modeDisplayTimer >= modeDisplayTime) {
+  if (modeDisplayTimer >= deltaTms) {
     modeDisplayTimer = 0;
     sprintf(topLine, "%i Freq. Sweep %2i", mode, int(motorInput)); //motorInput is the value sent to the motors.
     displayTopLine(topLine);
@@ -1688,7 +1673,7 @@ void  calculateMotorOutput() {
 
     integral = double(sum) / 1000.0 * deltaT;
 
-    if (gps.location.isUpdated())
+    if (gps.speed.isUpdated())
     {
       speedDifference = goalSpeed - ekfSpeed;
 
@@ -1701,15 +1686,15 @@ void  calculateMotorOutput() {
 
       double integralSpeed = double(speedSum) / 1000.0 * deltaT;
 
-      speedAdjust = int(speedK * speedDifference + speedI * integralSpeed);
+      speedAdjust = constrain(int(speedK * speedDifference + speedI * integralSpeed),-50,50);
 
     }
 
-    angleSetting = int(angleK * difference + angleI * integral + angleD * ekfYawRate);
+    angleSetting = constrain(int(angleK * difference + angleI * integral + angleD * ekfYawRate),-100,100);
 
-
-    int tempRightMotor = int((speedSetting  - turnSetting - angleSetting + stopMotorValue) * biasSetting);
-    int tempLeftMotor  = int( speedSetting  + turnSetting + angleSetting + stopMotorValue) ;
+  
+    int tempRightMotor = int((speedSetting + speedAdjust - turnSetting - angleSetting + stopMotorValue) * biasSetting);
+    int tempLeftMotor  = int( speedSetting + speedAdjust + turnSetting + angleSetting + stopMotorValue) ;
     rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
     leftMotor  = constrain(tempLeftMotor, maxRevMotorValue, maxFwdMotorValue);
 
