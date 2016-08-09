@@ -187,11 +187,13 @@ boolean mode4started = false;
 boolean mode5started = false;
 boolean mode6started = false;
 boolean mode7started = false;
+boolean calibrateY = false;
 
 byte mode = 0;
 byte currentMode = 0;
 byte numberOfModes = 5; //This limits the number of displayed modes.
 byte fig8phase = 0;
+byte turnPhase = 0;
 
 boolean rightButtonState = LOW;
 boolean leftButtonState = LOW;
@@ -908,6 +910,7 @@ void loop() {
           turnTimer = 0;
           leftTurn = true;
           rightTurn = false;
+          turnPhase = 0;
         }
         else if (rightButtonState && !pushButtonState) {
           goalAngle += 1;
@@ -920,28 +923,37 @@ void loop() {
           turnTimer = 0;
           leftTurn = false;
           rightTurn = true;
+          turnPhase = 0;
         }
       }
 
       if (rightTurn) { //right turn slowly for 180 degrees at 1 deg/sec
-        if (turnTimer >= 180000) {
+        if (turnTimer >= 720000) {
           leftTurn = false;
           rightTurn = false;
           turnSetting = 0;
         }
+        else if (turnTimer > 540000 && turnTimer < 720000) {
+          goalAngle = startAngle + 270 - turnTimer / 2000.0; //turn rate of 1 deg/second
+          turnSetting = -10; //feed forward
+        }
         else {
-          goalAngle = startAngle + turnTimer / 1000.0; //turn rate of 1 deg/second
+          goalAngle = startAngle + turnTimer / 2000.0; //turn rate of 0.5 deg/second
           turnSetting = 10; //feed forward
         }
       }
-      else if (leftTurn) { //right turn slowly for 180 degrees at 1 deg/sec
-        if (turnTimer >= 180000) {
+      else if (leftTurn) { //right turn slowly for 180 degrees at 0.5 deg/sec
+        if (turnTimer >= 720000) {
           leftTurn = false;
           rightTurn = false;
           turnSetting = 0;
         }
+        else if (turnTimer > 540000 && turnTimer < 720000) {
+          goalAngle = startAngle - 270 + turnTimer / 2000.0; //turn rate of 0.5 deg/second
+          turnSetting = 10; //feed forward
+        }
         else {
-          goalAngle = startAngle - turnTimer / 1000.0; //turn rate of 1 deg/second
+          goalAngle = startAngle - turnTimer / 2000.0; //turn rate of 0.5 deg/second
           turnSetting = -10; //feed forward
         }
       }
@@ -969,10 +981,13 @@ void loop() {
       turnSetting = 0;
       fixPointLat = gps.location.lat();
       fixPointLon = gps.location.lng();
-      Serial.print("fixPointLat\t");
-      Serial.println(fixPointLat, 10);
-      Serial.print("fixPointLon\t");
-      Serial.println(fixPointLon, 10);
+      if (needsToPrint) {
+        needsToPrint = false;
+        Serial.print("fixPointLat\t");
+        Serial.println(fixPointLat, 10);
+        Serial.print("fixPointLon\t");
+        Serial.println(fixPointLon, 10);
+      }
       
     }
     else if (downButtonState && pushButtonState) {
@@ -1159,30 +1174,30 @@ void loop() {
       }
       
       if (fig8phase == 0) { //forward for some seconds
-        if (fig8timer >= 80000) {
+        if (fig8timer >= 100000) {
           fig8timer = 0;
           fig8phase = 1;
           startAngle = ekfYawAngle; //degrees
         }
       }
       else if (fig8phase == 1) { //right turn slowly for 180 degrees at 1 deg/sec
-        if (fig8timer >= 180000) {
+        if (fig8timer >= 360000) {
           fig8timer = 0;
           fig8phase = 2;
           turnSetting = 0;
           startAngle = goalAngle;
         }
         else {
-          goalAngle = startAngle + fig8timer / 1000.0; //turn rate of 1 deg/second
+          goalAngle = startAngle + fig8timer / 2000.0; //turn rate of 1 deg/second
           turnSetting = 10; //feed forward
         }
       }
       else if (fig8phase == 2) { //Correct towards fixed point
-        if (distanceToFixPoint > 10) {
+        if (distanceToFixPoint > 20) {
           double angleDifference = courseToFixPoint - goalAngle;
           if (fig8timer >= 100) {
             fig8timer = 0;
-            goalAngle += 0.1 * angleDifference / abs(angleDifference); //1 degree per second in the direction make the angle difference smaller
+            goalAngle += 0.05 * angleDifference / abs(angleDifference); //0.5 degree per second in the direction make the angle difference smaller
           }
         }
         else { //go straight once within 10 meters.
@@ -1192,29 +1207,29 @@ void loop() {
         }
       }
       else if (fig8phase == 3) { //go straight for 120 seconds
-        if (fig8timer >= 100000) {
+        if (fig8timer >= 120000) {
           fig8timer = 0;
           fig8phase = 4;
           startAngle = ekfYawAngle; //degrees
         }
       }
       else if (fig8phase == 4) { //right turn slowly for 180 degrees
-        if (fig8timer >= 180000) {
+        if (fig8timer >= 360000) {
           fig8timer = 0;
           fig8phase = 5;
           turnSetting = 0;
           startAngle = goalAngle;
         }
         else {
-          goalAngle = startAngle - fig8timer / 1000.0; //turn rate of 1 deg/second (in opposite direction)
+          goalAngle = startAngle - fig8timer / 2000.0; //turn rate of 1 deg/second (in opposite direction)
           turnSetting = -10; //feed forward
         }
       }
       else if (fig8phase == 5) { //Correct towards fixed point
-        if (distanceToFixPoint > 10) {
+        if (distanceToFixPoint > 20) {
           double angleDifference = courseToFixPoint - goalAngle;
           if (fig8timer >= 100) {
-            goalAngle += 0.1 * angleDifference / abs(angleDifference); //1 degree per second in the direction make the angle difference smaller
+            goalAngle += 0.05 * angleDifference / abs(angleDifference); //1 degree per second in the direction make the angle difference smaller
             fig8timer = 0;
           }
         }
@@ -1301,10 +1316,12 @@ void loop() {
 
     if (upButtonState && pushButtonState) {
       mode6started = true;
+      calibrateY = true;
       compass.enterCalMode();
       delay(30);
       totalTurn = 0;
       lastAngle = compassHeading;
+      
     }
     else if (upButtonState && !pushButtonState) //Try to reset the compassOffset
     {
@@ -1331,43 +1348,69 @@ void loop() {
       if (leftButtonState) compassOffset -= 1;
       else if (rightButtonState) compassOffset += 1;
     }
-
-    displayMode6();
-
+    
     if (mode6started) {
-      debugData();
-      double deltaAngle = compassHeading - lastAngle;
-      lastAngle = compassHeading;
-      if (deltaAngle > 180) totalTurn += 360 - deltaAngle ;
-      else if (deltaAngle < -180) totalTurn += deltaAngle + 360;
-      else totalTurn += deltaAngle;
-
-      if (abs(totalTurn) < 360)
-      {
-        rightMotor = maxRevMotorValue;
-        leftMotor = maxFwdMotorValue;
+      if (calibrateY){
+        if (modeDisplayTimer >= deltaTms) {
+          modeDisplayTimer = 0;
+          strncpy(botLine, "Button When Done", 16);
+          displayBottomLine(botLine);
+          strncpy(topLine, "Rotate about Y  ", 16);
+          displayTopLine(topLine);
+        }
+        if (pushButtonState) calibrateY = false;
       }
       else
       {
-        rightMotor = stopMotorValue;
-        leftMotor = stopMotorValue;
+        debugData();
+        if (modeDisplayTimer >= deltaTms) {
+          modeDisplayTimer = 0;
+          sprintf(botLine, "Turn:%4i Hdg:%3i", int(totalTurn), int(gps.course.deg()));
+          displayBottomLine(botLine);
+          strncpy(topLine, "Rotate about Y  ", 16);
+          displayTopLine(topLine);
+        }
 
-        rightServo.write(rightMotor);
-        leftServo.write(leftMotor);
-
-        compass.exitCalMode();
-        delay(50);
-        compass.exitStandby();
-
-        rightMotor = stopMotorValue;
-        leftMotor = stopMotorValue;
-
-        mode6started = false;
+        double deltaAngle = compassHeading - lastAngle;
+        lastAngle = compassHeading;
+        if (deltaAngle > 180) totalTurn += 360 - deltaAngle ;
+        else if (deltaAngle < -180) totalTurn += deltaAngle + 360;
+        else totalTurn += deltaAngle;
+  
+        if (abs(totalTurn) < 360)
+        {
+          rightMotor = maxRevMotorValue;
+          leftMotor = maxFwdMotorValue;
+        }
+        else
+        {
+          rightMotor = stopMotorValue;
+          leftMotor = stopMotorValue;
+  
+          rightServo.write(rightMotor);
+          leftServo.write(leftMotor);
+  
+          compass.exitCalMode();
+          delay(50);
+          compass.exitStandby();
+  
+          rightMotor = stopMotorValue;
+          leftMotor = stopMotorValue;
+  
+          mode6started = false;
+        }
       }
     }
 
     else
     {
+      if (modeDisplayTimer >= deltaTms) {
+        modeDisplayTimer = 0;
+        sprintf(topLine, "Cal. O:%3i H:%3i", int(compassOffset), int(compassHeading)); //motorInput is the value sent to the motors.
+        displayTopLine(topLine);
+        sprintf(botLine, "BtnUp2Start C%3i", int(gps.course.deg()));
+        displayBottomLine(botLine);
+      }
       rightMotor = stopMotorValue;
       leftMotor = stopMotorValue;
     }
@@ -1571,18 +1614,7 @@ void displayMode5() {
   }
 }
 
-void displayMode6() {
-  if (modeDisplayTimer >= deltaTms) {
-    modeDisplayTimer = 0;
-    sprintf(topLine, "Cal. O:%3i H:%3i", int(compassOffset), int(compassHeading)); //motorInput is the value sent to the motors.
-    displayTopLine(topLine);
 
-    if (mode6started) sprintf(botLine, "Turn:%4i Hdg:%3i", int(totalTurn), int(gps.course.deg()));
-    else sprintf(botLine, "BtnUp2Start C%3i", int(gps.course.deg()));
-
-    displayBottomLine(botLine);
-  }
-}
 
 void displayMode7() {
   if (modeDisplayTimer >= deltaTms) {
