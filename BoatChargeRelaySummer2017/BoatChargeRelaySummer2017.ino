@@ -53,7 +53,7 @@ void setup() {
   digitalWrite(relayPin,relayState);
 
   Serial.begin(9600);
-
+  delay(1000);
   attachInterrupt(0,countTach,FALLING);
 }
 
@@ -83,49 +83,34 @@ void loop() {
     Serial.print(", Tach Count: ");
     Serial.println(current_tach_count);
   }
-   
   
-  
-  
-  
-
   if (millis() - previous_millis > 5000){
     previous_millis = millis();
     if (previous_tach_count == current_tach_count) current_tach_count = 0;
     
-    if (current_tach_count > 300) {
+    if (current_tach_count > 200) 
+    {
       relayState=true;
       greenLEDstate = true;
       redLEDstate = false;
-      
       current_tach_count = 0;
       shutdownCount = millis();
+    }
+    else if ( alternatorMillivolts > 12700)
+    {
+      redLEDstate = true;
+      relayState=true;
+      current_tach_count = 0;
     }
     else
     {
       previous_tach_count = current_tach_count;
       greenLEDstate = false;
       relayState=false;
-      redLEDstate = true;
-      if (batteryMillivolts<11000) greenLEDstate = false;
-      else
-      {
-        greenLEDstate = true;
-        shutdownCount = millis();
-      }
+      redLEDstate = false;
     }
   }
 
-  if (millis() - shutdownCount > 12000000){
-     redLEDstate= false;
-     greenLEDstate = false;
-     relayState = false;
-     delay(1000);
-  }
-
-  
-  
-  
   digitalWrite(relayPin,relayState);
   digitalWrite(greenLEDpin,greenLEDstate);
   digitalWrite(redLEDpin,redLEDstate);
