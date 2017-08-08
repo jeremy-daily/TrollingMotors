@@ -15,6 +15,8 @@
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
 
+float turnRate = 1.5; //degrees per second
+
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
 double compassOffset = -10.8;// True - measured, so measured + offset = true
@@ -904,7 +906,7 @@ void loop() {
           rightTurn = false;
         }
         else if (leftButtonState && pushButtonState) {
-          startAngle = ekfYawAngle;
+          goalAngle = ekfYawAngle;
           turnTimer = 0;
           leftTurn = true;
           rightTurn = false;
@@ -916,7 +918,7 @@ void loop() {
           rightTurn = false;
         }
         else if (rightButtonState && pushButtonState) {
-          startAngle = ekfYawAngle;
+          goalAngle = ekfYawAngle;
           turnTimer = 0;
           leftTurn = false;
           rightTurn = true;
@@ -924,26 +926,13 @@ void loop() {
       }
 
       if (rightTurn) { //right turn slowly for 180 degrees at 1 deg/sec
-        if (turnTimer >= 180000) {
-          leftTurn = false;
-          rightTurn = false;
-          turnSetting = 0;
-        }
-        else {
-          goalAngle = startAngle + turnTimer / 1000.0; //turn rate of 1 deg/second
-          turnSetting = 10; //feed forward
-        }
+        goalAngle += turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
+        turnSetting = 10; //feed forward
+        
       }
       else if (leftTurn) { //right turn slowly for 180 degrees at 1 deg/sec
-        if (turnTimer >= 180000) {
-          leftTurn = false;
-          rightTurn = false;
-          turnSetting = 0;
-        }
-        else {
-          goalAngle = startAngle - turnTimer / 1000.0; //turn rate of 1 deg/second
-          turnSetting = -10; //feed forward
-        }
+        goalAngle -= turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
+        turnSetting = -10; //feed forward
       }
 
       calculateMotorOutput();
