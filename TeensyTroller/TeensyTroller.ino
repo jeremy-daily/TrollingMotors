@@ -9,7 +9,7 @@
 #include <TinyGPS++.h> // Used to read the data from the GPS.
 #include <FlexCAN.h> // The CAN library for the Teensy used to communicate with the Joystick
 #include "SPI.h" //Serial Peripherial Interface
-//#include "ILI9341_t3.h" // The library for the TFT display for the Teensy 3.2
+#include "ILI9341_t3.h" // The library for the TFT display for the Teensy 3.2
 #include  <i2c_t3.h> // the I2C library that replaces Wire.h for the Teensy 3.2
 #include <SFE_HMC6343.h> //Sparkfun's library for the digital compass
 #include <Servo.h> // Used to send pulses to the motor controller
@@ -507,36 +507,57 @@ void sendCANmessages() {
 
 
 void readCANmessages() {
-  while ( CANbus.read(rxmsg) ) {
-    waitingForCANtimer = 0; //reset the can message timeout
-    ID = rxmsg.id;
-    if (ID == 0x700) {
-      CANaliveTimer = 0;
-      mode = rxmsg.buf[0];
-      upButtonState = bitRead(rxmsg.buf[1], 0);
-      downButtonState = bitRead(rxmsg.buf[1], 1);
-      leftButtonState = bitRead(rxmsg.buf[1], 2);
-      rightButtonState = bitRead(rxmsg.buf[1], 3);
-      pushButtonState = bitRead(rxmsg.buf[1], 4);
-    }
-    if (ID == 0x43c) {
-      CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
-    }
-    else if (ID == 0x43d) {
-      CANheading = (rxmsg.buf[6] * 256 + rxmsg.buf[7]) / 10.;
-    }
-    else if (ID == 0x43e) {
-      headingReading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
-      gpsSpeed = (rxmsg.buf[2] * 256 + rxmsg.buf[3]) * 1.15078; // + 0.5;
-      gpsAngle = (rxmsg.buf[4] * 256 + rxmsg.buf[5]);
-      gpsSats  = rxmsg.buf[6];
-      gpsFix   = rxmsg.buf[7];
-    }
-    else if (ID == 0x441) {
-      headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
-      dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
-    }
+  while (Serial.available())
+  {
+    String c = Serial.readString();
+    Serial.print(c); //used for debugging
+    if (c == "u") upButtonState = true;
+    else upButtonState = false;
+    if (c == "d") downButtonState = true;
+    else downButtonState = false;
+    if (c == "l") leftButtonState = true;
+    else leftButtonState = false;
+    if (c == "r") rightButtonState = true;
+    else rightButtonState = false;
+    if (c == "b") pushButtonState = true;
+    else pushButtonState = false;
+    if (c == "m0") mode = 0;
+    if (c == "m1") mode = 1;
+    if (c == "m2") mode = 2;
+    if (c == "m3") mode = 3;
+    if (c == "m4") mode = 4;
+    
   }
+//  while ( CANbus.read(rxmsg) ) {
+//    waitingForCANtimer = 0; //reset the can message timeout
+//    ID = rxmsg.id;
+//    if (ID == 0x700) {
+//      CANaliveTimer = 0;
+//      mode = rxmsg.buf[0];
+//      upButtonState = bitRead(rxmsg.buf[1], 0);
+//      downButtonState = bitRead(rxmsg.buf[1], 1);
+//      leftButtonState = bitRead(rxmsg.buf[1], 2);
+//      rightButtonState = bitRead(rxmsg.buf[1], 3);
+//      pushButtonState = bitRead(rxmsg.buf[1], 4);
+//    }
+//    if (ID == 0x43c) {
+//      CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+//    }
+//    else if (ID == 0x43d) {
+//      CANheading = (rxmsg.buf[6] * 256 + rxmsg.buf[7]) / 10.;
+//    }
+//    else if (ID == 0x43e) {
+//      headingReading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+//      gpsSpeed = (rxmsg.buf[2] * 256 + rxmsg.buf[3]) * 1.15078; // + 0.5;
+//      gpsAngle = (rxmsg.buf[4] * 256 + rxmsg.buf[5]);
+//      gpsSats  = rxmsg.buf[6];
+//      gpsFix   = rxmsg.buf[7];
+//    }
+//    else if (ID == 0x441) {
+//      headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
+//      dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
+//    }
+//  }
 }
 
 /*
@@ -576,51 +597,7 @@ void displayTemplate() {
 }
 
 
-void displayData() {
-  if (printTFTtimer > 250) {
-    printTFTtimer = 0;
-
-    if (downButtonState) //tft.fillRect(0, 310, 240, 10, ILI9341_WHITE);
-    else //tft.fillRect(0, 310, 240, 30, ILI9341_BLACK);
-    //    if (upButtonState) //tft.fillRect(0, 0, 240, 10, ILI9341_WHITE);
-    //    else //tft.fillRect(0, 0, 240, 10, ILI9341_BLACK);
-    //    if (rightButtonState) //tft.fillRect(230, 0, 10, 320, ILI9341_RED);
-    //    else //tft.fillRect(230, 0, 10, 320, ILI9341_BLACK);
-    //    if (leftButtonState) //tft.fillRect(0, 0, 10, 320, ILI9341_GREEN);
-    //    else //tft.fillRect(0, 0, 10, 320, ILI9341_BLACK);
-    //if (pushButtonState) //tft.fillRect(100, 120, 40, 40, ILI9341_WHITE);
-    //else //tft.fillRect(100, 120, 40, 40, ILI9341_BLACK);
-
-    char dispVal[14];
-
-
-    //tft.fillRect(90, 0, 20, 30, ILI9341_BLACK);
-    //tft.setCursor(90, 0);
-    //tft.print(mode);
-
-    //tft.fillRect(198, 0, 42, 30, ILI9341_BLACK);
-    //tft.setCursor(198, 0);
-    sprintf(dispVal, "%2i", int(gps.satellites.value()));
-    //tft.print(dispVal);
-
-    //tft.fillRect(180, 30, 60, 30, ILI9341_BLACK);
-    //tft.setCursor(180, 30);
-    sprintf(dispVal, "%3i", int(ekfYawAngle));
-    //tft.print(dispVal);
-
-    //tft.fillRect(180, 60, 60, 30, ILI9341_BLACK);
-    //tft.setCursor(180, 60);
-    sprintf(dispVal, "%3i", int(CANcompassHeading));
-    //tft.print(dispVal);
-
-    //tft.fillRect(180, 90, 60, 30, ILI9341_BLACK);
-    //tft.setCursor(180, 90);
-    //sprintf(dispVal, "%3i", int(gps.course.deg()));
-    //tft.print(dispVal);
-
-    //tft.fillRect(180, 120, 60, 30, ILI9341_BLACK);
-    //tft.setCursor(180, 120);
-    //sprintf(dispVal, "%3i", int(goalAngle));
+ , "%3i", int(goalAngle));
     //tft.pr-----------------------------------");
   }
 }
@@ -831,20 +808,20 @@ void getMeasurements() {
     ekfSpeed = ekf.getX(2);
    // ekfAccel = ekf.getX(3);
 
-    //    Serial.print(z[0],4);
-    //    Serial.print("\t");
-    //    Serial.print(ekf.getX(0),4);
-    //    Serial.print("\t");
-    //    Serial.print(z[1],4);
-    //    Serial.print("\t");
-    //    Serial.print(ekf.getX(1),4);
-    //    Serial.print(z[2],4);
-    //    Serial.print("\t");
-    //    Serial.print(ekf.getX(2),4);
-    //    Serial.print("\t");
-    //    Serial.print(z[3],4);
-    //    Serial.print("\t");
-    //    Serial.println(ekf.getX(3),4);;
+//        Serial.print(z[0],4);
+//        Serial.print("\t");
+//        Serial.print(ekf.getX(0),4);
+//        Serial.print("\t");
+//        Serial.print(z[1],4);
+//        Serial.print("\t");
+//        Serial.print(ekf.getX(1),4);
+//        Serial.print(z[2],4);
+//        Serial.print("\t");
+//        Serial.print(ekf.getX(2),4);
+//        Serial.print("\t");
+//        Serial.print(z[3],4);
+//        Serial.print("\t");
+//        Serial.println(ekf.getX(3),4);;
 
 
     if (ekfYawAngle >= 360) ekfYawAngle -= 360;
@@ -853,8 +830,8 @@ void getMeasurements() {
   }
 
   //get user input
-  readCANmessages();
-  if (CANaliveTimer > 500) mode = 0;
+  //readCANmessages();
+  //if (CANaliveTimer > 500) mode = 0;
 
   while (Serial1.available())
   {
@@ -862,6 +839,8 @@ void getMeasurements() {
     //Serial.print(c); //used for debugging
     gps.encode(c);
   }
+
+  
 }
 
 void loop() {
@@ -1490,8 +1469,10 @@ void displayMode0() {
     modeDisplayTimer = 0;
     sprintf(topLine, "OFF O:%5.1f N:%2i", compassOffset, int(gps.satellites.value()));
     displayTopLine(topLine);
+    Serial.println(topLine);
     sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
     displayBottomLine(botLine);
+    Serial.println(botLine);
   }
 }
 

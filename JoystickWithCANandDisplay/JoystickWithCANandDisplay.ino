@@ -38,11 +38,11 @@ const int memorySize=256;
 int differenceList[256];
 
 
-int speedK = 1;
+//int speedK = 1;
 //int speedI = 0;
 //int speedD = 0;
 //
-int speedBitShiftK = 0;
+//int speedBitShiftK = 0;
 //int speedBitShiftI = 0; // Example bit shift of 8 = division by 256. Depends on the Memory Size
 //int speedBitShiftD = 0;
 
@@ -92,7 +92,7 @@ int finalHeading = 0; // the goal for the turns
 //Define the button input pins
 const int rightButton = 14;
 const int downButton = 15;
-const int pushButton = 17;
+const int pushButton = A3;
 const int leftButton = 5;
 const int upButton = 3;
 
@@ -163,9 +163,9 @@ int lastHeading = 0;
 int headingChange = 0;
 int speedSetting = 0;
 int goalSetting = 0;
-int currentHeading = 0;
 int headingReading = 0;
 int startHeading = 0;
+int currentHeading = 0;
 int heading1 = 0;
 int gpsSpeed = 0;
 int gpsAngle = 0;
@@ -183,15 +183,17 @@ long desiredLatitude = 0;
 // the setup routine runs once
 void setup() {
 
-  pinMode(2, INPUT); //Monitor for CAN messages
+  pinMode(2, INPUT_PULLUP); //Monitor for CAN messages
 
   Serial.begin(115200);
   Serial.println("It's time to go fishing with the Dailys!!");
 
   //start CAN communications
   Serial.println("Setting up CAN0..."); //J1939
-  if(CAN0.begin(CAN_500KBPS) == CAN_OK) Serial.println("CAN0 init ok!!");
-  else Serial.println("CAN0 init fail!!");
+  if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) Serial.println("MCP2515 Initialized Successfully!");
+  else Serial.println("Error Initializing MCP2515...");
+
+  CAN0.setMode(MCP_NORMAL);   // Change to normal mode to allow messages to be transmitted
 
   //  Serial.println("Possible Modes are:");
   //  for (int g = 0; g < numberOfModes; g++){
@@ -227,8 +229,8 @@ void setup() {
   dispSerial.begin(9600);
   delay(10);
 
-  // dispSerial.write(0x7C);
-  // dispSerial.write(157); //Full Brightness
+  //dispSerial.write(0x7C);
+ // dispSerial.write(157); //Full Brightness
 
   dispSerial.write(254);
   dispSerial.write(1); //clear screen
@@ -268,6 +270,7 @@ void loop() {
   if (currentHeading > 3600) currentHeading -= 3600;
   if (currentHeading < 0   ) currentHeading += 3600;
 
+  
   /***********************************************************************************************/
   if (mode == 0){ //Off 
     displayReadings();
@@ -404,7 +407,7 @@ void loop() {
         dispSerial.write(192); //Beginning of the second line
         dispSerial.print(displayBuffer1);
       }
-      implementTurn();
+//      implementTurn();
       computeValues();
       sendCommands();
       displayDesires(); 
@@ -440,8 +443,8 @@ void loop() {
         //          sumDist += distList[j];
         //        }
         //        
-        int tempSpeedSetting = (speedK * dist) >> speedBitShiftK ; //+ (speedI * sumDist)>>speedBitShiftI - (gpsSpeed*speedD )>>speedBitShiftD;
-        speedSetting = constrain(tempSpeedSetting,-99,100);
+//        int tempSpeedSetting = (speedK * dist) >> speedBitShiftK ; //+ (speedI * sumDist)>>speedBitShiftI - (gpsSpeed*speedD )>>speedBitShiftD;
+//        speedSetting = constrain(tempSpeedSetting,-99,100);
 
         dispSerial.write(254); //escape character
         dispSerial.write(133); 
@@ -521,7 +524,7 @@ void loop() {
         dispSerial.print(displayBuffer1);
       }
 
-      implementTurn();
+     // implementTurn();
       computeValues();
       displayDesires();
       sendCommands();
@@ -640,7 +643,7 @@ void loop() {
       if (pushButtonState == HIGH){
         //Serial.println("Push");
         dispSerial.write(254); //escape character
-        dispSerial.write(206); //Move Cursor to the bottom last point on a 16x2 display
+        dispSerial.write(207); //Move Cursor to the bottom last point on a 16x2 display
         dispSerial.print("B");
         if (currentMillis - doubleClickTimer < doubleClickThreshold){
           doubleClickRoutine();
@@ -672,35 +675,35 @@ void loop() {
 }
 /***********************************************************************************************/
 /***********************************************************************************************/
-void implementTurn(){
-  //Increment 1 degree in the correct direction according to the compass 
-  //Considerations for crossing 0/360 are implemented.
-
-  if (finalHeading > 3600) finalHeading -= 3600;
-  if (finalHeading < 0) finalHeading += 3600;
-
-  if (currentMillis - lastDegreeTime > turnRate){
-    lastDegreeTime = currentMillis;
-    if (abs(finalHeading - goalSetting) < 1800){
-      if (finalHeading > goalSetting) goalSetting +=10;
-      else if (finalHeading < goalSetting) goalSetting -=10;
-      else {
-        finalHeading = goalSetting;
-        turnAdjust = 0;
-      }
-    }
-    else {
-      if      (finalHeading < goalSetting && finalHeading >  1800) goalSetting -=10;
-      else if (finalHeading < goalSetting && finalHeading <= 1800) goalSetting +=10;
-      else if (finalHeading > goalSetting && finalHeading >  1800) goalSetting -=10;
-      else if (finalHeading > goalSetting && finalHeading <= 1800) goalSetting +=10;
-      else finalHeading = goalSetting;
-    }
-    degreeCounter+=1;
-    if (degreeCounter > 600) degreeCounter = 0;
-  }
-}
-//Double Clikcing changes mode and resets settings
+//void implementTurn(){
+//  //Increment 1 degree in the correct direction according to the compass 
+//  //Considerations for crossing 0/360 are implemented.
+//
+//  if (finalHeading > 3600) finalHeading -= 3600;
+//  if (finalHeading < 0) finalHeading += 3600;
+//
+//  if (currentMillis - lastDegreeTime > turnRate){
+//    lastDegreeTime = currentMillis;
+//    if (abs(finalHeading - goalSetting) < 1800){
+//      if (finalHeading > goalSetting) goalSetting +=10;
+//      else if (finalHeading < goalSetting) goalSetting -=10;
+//      else {
+//        finalHeading = goalSetting;
+//        turnAdjust = 0;
+//      }
+//    }
+//    else {
+//      if      (finalHeading < goalSetting && finalHeading >  1800) goalSetting -=10;
+//      else if (finalHeading < goalSetting && finalHeading <= 1800) goalSetting +=10;
+//      else if (finalHeading > goalSetting && finalHeading >  1800) goalSetting -=10;
+//      else if (finalHeading > goalSetting && finalHeading <= 1800) goalSetting +=10;
+//      else finalHeading = goalSetting;
+//    }
+//    degreeCounter+=1;
+//    if (degreeCounter > 600) degreeCounter = 0;
+//  }
+//}
+////Double Clikcing changes mode and resets settings
 void doubleClickRoutine(){ 
   mode += 1;
   if (mode >= numberOfModes) mode = 0;
@@ -781,7 +784,7 @@ void sendJoyStick(){
     joyMessage[2]=highByte(goalSetting);
     joyMessage[3]=lowByte(goalSetting);
     
-    CAN0.sendMsgBuf(0x777, 0, 4, joyMessage );
+    CAN0.sendMsgBuf(0x700, 0, 4, joyMessage );
   }
 }
 /***********************************************************************************************/
@@ -841,8 +844,9 @@ void decrementGoalby10(){
 /***********************************************************************************************/
 /***********************************************************************************************/
 void readCANbus(){
-  CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
-  rxId = CAN0.getCanId();                    // Get message ID
+  if(CAN0.checkReceive()){
+  CAN0.readMsgBuf(&rxId, &len, rxBuf);      // Read data: len = data length, buf = data byte(s)
+    //rxId = CAN0.getCanId();                    // Get message ID
   if (rxId == 0x43c){
     heading1 = (rxBuf[0]*256 + rxBuf[1]);
     lastCANTime = currentMillis;
@@ -885,6 +889,7 @@ void readCANbus(){
     gpsFix   = 0;
     voltage = 0;
   }
+  }
 }
 
 /***********************************************************************************************/
@@ -926,23 +931,23 @@ void  computeValues(){
       lastHeading = currentHeading;
     }
 
-    difference = goalSetting - currentHeading;
-    if (difference <= -1800)  difference += 3600;
-    if (difference >= 1800)  difference -= 3600;
+//    difference = goalSetting - currentHeading;
+//    if (difference <= -1800)  difference += 3600;
+//    if (difference >= 1800)  difference -= 3600;
 
-    differenceList[diffIndex] = difference;
-    diffIndex+=1;
-    if (diffIndex >= memorySize) diffIndex = 0;
+//    differenceList[diffIndex] = difference;
+//    diffIndex+=1;
+//    if (diffIndex >= memorySize) diffIndex = 0;
 
-    sum = 0;
-    for (int j = 0; j < memorySize; j++){
-      sum += differenceList[j];
-    }
+//    sum = 0;
+//    for (int j = 0; j < memorySize; j++){
+//      sum += differenceList[j];
+//    }
 
-    int tempRightMotor = speedSetting - turnSetting - ((usedK*difference) >> bitShiftK) - zeroAdjustR - ((usedI*sum) >> bitShiftI) - ((usedD*headingChange)>> bitShiftD) + 100;
-    int tempLeftMotor  = speedSetting + turnSetting + ((usedK*difference) >> bitShiftK) + zeroAdjustL + ((usedI*sum) >> bitShiftI) + ((usedD*headingChange)>> bitShiftD) + 100;
-    rightMotor = constrain(tempRightMotor,0,200);
-    leftMotor  = constrain(tempLeftMotor,0,200);
+//    int tempRightMotor = speedSetting - turnSetting - ((usedK*difference) >> bitShiftK) - zeroAdjustR - ((usedI*sum) >> bitShiftI) - ((usedD*headingChange)>> bitShiftD) + 100;
+//    int tempLeftMotor  = speedSetting + turnSetting + ((usedK*difference) >> bitShiftK) + zeroAdjustL + ((usedI*sum) >> bitShiftI) + ((usedD*headingChange)>> bitShiftD) + 100;
+//    rightMotor = constrain(tempRightMotor,0,200);
+//    leftMotor  = constrain(tempLeftMotor,0,200);
   }       
 }
 /***********************************************************************************************/
