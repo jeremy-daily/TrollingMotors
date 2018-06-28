@@ -15,7 +15,8 @@
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
 
-float turnRate = 1.5; //degrees per second
+float turnRate = 1.500; //degrees per second
+elapsedMillis turnUpdateTimer;
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
@@ -244,7 +245,7 @@ Servo leftServo;  // create servo object to control a servo
 
 
 //Set up CAN messaging
-FlexCAN CANbus(500000);
+FlexCAN CANbus();
 static CAN_message_t txmsg, rxmsg;
 uint32_t CANTXcount = 0;
 uint32_t CANRXcount = 0;
@@ -400,34 +401,34 @@ void setup() {
 
   //tft.println("Starting CAN");
   delay(100);
-  CANbus.begin();
+  Can0.begin(500000);
 
   strncpy(message, "Fishing ", 8);
   txmsg.id = 0x211; //Send to the upper left
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
   delay(50);
 
   strncpy(message, "is great", 8);
   txmsg.id = 0x212; //sent to the upper right
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
   delay(50);
 
   strncpy(message, "today. H", 8);
   txmsg.id = 0x221; //sent to the lower left
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
   delay(50);
 
   strncpy(message, "ave fun.", 8);
   txmsg.id = 0x222; //sent to the lower right
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
   delay(50);
 
   //tft.print("CAN msgs sent");
@@ -463,27 +464,27 @@ void setup() {
 
 
 void sendCANmessages() {
-//  if (broadcastCANtimer >= 200) {
-//    broadcastCANtimer = 0;
-//
-//    //GPS Messages
-//    if (gps.speed.isUpdated() ) {
-//      txmsg.id = 0x43e;
-//      txmsg.len = 8;
-//
-//      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
-//      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
-//      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
-//      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
-//      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
-//      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
-//      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
-//      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
-//
-//      CANbus.write(txmsg);
-//      CANTXcount++;
-//    }
-//  }
+  if (broadcastCANtimer >= 200) {
+    broadcastCANtimer = 0;
+
+    //GPS Messages
+    if (gps.speed.isUpdated() ) {
+      txmsg.id = 0x43e;
+      txmsg.len = 8;
+
+      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
+      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
+      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
+      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
+      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
+      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
+      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
+      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
+
+      Can0.write(txmsg);
+      CANTXcount++;
+    }
+  }
 
   if (broadcastCANmodeTimer >= deltaTms) {
     broadcastCANmodeTimer = 0;
@@ -499,7 +500,7 @@ void sendCANmessages() {
     txmsg.buf[6] = 0xFF;
     txmsg.buf[7] = 0xFF;
 
-    CANbus.write(txmsg);
+    Can0.write(txmsg);
 
   }
 }
@@ -528,36 +529,36 @@ void readCANmessages() {
     if (c == "m4") mode = 4;
     
   }
-//  while ( CANbus.read(rxmsg) ) {
-//    waitingForCANtimer = 0; //reset the can message timeout
-//    ID = rxmsg.id;
-//    if (ID == 0x700) {
-//      CANaliveTimer = 0;
-//      mode = rxmsg.buf[0];
-//      upButtonState = bitRead(rxmsg.buf[1], 0);
-//      downButtonState = bitRead(rxmsg.buf[1], 1);
-//      leftButtonState = bitRead(rxmsg.buf[1], 2);
-//      rightButtonState = bitRead(rxmsg.buf[1], 3);
-//      pushButtonState = bitRead(rxmsg.buf[1], 4);
-//    }
-//    if (ID == 0x43c) {
-//      CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
-//    }
-//    else if (ID == 0x43d) {
-//      CANheading = (rxmsg.buf[6] * 256 + rxmsg.buf[7]) / 10.;
-//    }
-//    else if (ID == 0x43e) {
-//      headingReading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
-//      gpsSpeed = (rxmsg.buf[2] * 256 + rxmsg.buf[3]) * 1.15078; // + 0.5;
-//      gpsAngle = (rxmsg.buf[4] * 256 + rxmsg.buf[5]);
-//      gpsSats  = rxmsg.buf[6];
-//      gpsFix   = rxmsg.buf[7];
-//    }
-//    else if (ID == 0x441) {
-//      headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
-//      dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
-//    }
-//  }
+  while ( Can0.read(rxmsg) ) {
+    waitingForCANtimer = 0; //reset the can message timeout
+    ID = rxmsg.id;
+    if (ID == 0x700) {
+      CANaliveTimer = 0;
+      mode = rxmsg.buf[0];
+      upButtonState = bitRead(rxmsg.buf[1], 0);
+      downButtonState = bitRead(rxmsg.buf[1], 1);
+      leftButtonState = bitRead(rxmsg.buf[1], 2);
+      rightButtonState = bitRead(rxmsg.buf[1], 3);
+      pushButtonState = bitRead(rxmsg.buf[1], 4);
+    }
+    if (ID == 0x43c) {
+      CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+    }
+    else if (ID == 0x43d) {
+      CANheading = (rxmsg.buf[6] * 256 + rxmsg.buf[7]) / 10.;
+    }
+    else if (ID == 0x43e) {
+      headingReading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+      gpsSpeed = (rxmsg.buf[2] * 256 + rxmsg.buf[3]) * 1.15078; // + 0.5;
+      gpsAngle = (rxmsg.buf[4] * 256 + rxmsg.buf[5]);
+      gpsSats  = rxmsg.buf[6];
+      gpsFix   = rxmsg.buf[7];
+    }
+    else if (ID == 0x441) {
+      headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
+      dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
+    }
+  }
 }
 
 /*
@@ -829,9 +830,7 @@ void getMeasurements() {
     ekf.setX(0, ekfYawAngle);
   }
 
-  //get user input
-  //readCANmessages();
-  //if (CANaliveTimer > 500) mode = 0;
+  
 
   while (Serial1.available())
   {
@@ -850,7 +849,11 @@ void loop() {
   //send stuff
   //displayData(); // Displays info on the TFT display
   sendCANmessages();
-
+  
+  //get user input
+  readCANmessages();
+  if (CANaliveTimer > 500) mode = 0;
+  
   if (mode != currentMode) {
     resetOutputs();
     debugDataHeader();
@@ -903,17 +906,20 @@ void loop() {
           rightTurn = true;
         }
       }
-
-      if (rightTurn) { //right turn slowly for 180 degrees at 1 deg/sec
-        goalAngle += turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
-        turnSetting = 10; //feed forward
-        
+      if (turnTimer > 1000){
+        turnTimer = 0;
+      
+        if (rightTurn ) { //right turn slowly for 180 degrees at 1 deg/sec
+          goalAngle += turnRate ;
+          turnSetting = 10; //feed forward
+          
+        }
+        else if (leftTurn) { 
+          goalAngle -= turnRate ;
+          turnSetting = -10; //feed forward
+        }
       }
-      else if (leftTurn) { //right turn slowly for 180 degrees at 1 deg/sec
-        goalAngle -= turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
-        turnSetting = -10; //feed forward
-      }
-
+      
       calculateMotorOutput();
 
 
@@ -1469,10 +1475,10 @@ void displayMode0() {
     modeDisplayTimer = 0;
     sprintf(topLine, "OFF O:%5.1f N:%2i", compassOffset, int(gps.satellites.value()));
     displayTopLine(topLine);
-    Serial.println(topLine);
+    //Serial.println(topLine);
     sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
     displayBottomLine(botLine);
-    Serial.println(botLine);
+    //Serial.println(botLine);
   }
 }
 
@@ -1576,26 +1582,26 @@ void displayMode7() {
 void displayUpperLeft8(char message[9]) {
   txmsg.id = 0x211; //sent to the lower right
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
 }
 
 void displayUpperRight8(char message[9]) {
   txmsg.id = 0x212; //sent to the lower right
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
 }
 
 void displayLowerLeft8(char message[9]) {
   txmsg.id = 0x221; //sent to the lower right
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
 }
 
 
 void displayLowerRight8(char message[9]) {
   txmsg.id = 0x222; //sent to the lower right
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  CANbus.write(txmsg);
+  Can0.write(txmsg);
 }
 
 void displayTopLine(char _topLine[17]) {

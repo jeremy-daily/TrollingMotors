@@ -11,6 +11,8 @@ MCP_CAN CAN0(10);
 
 byte joyMessage[8];
 
+char numModes = 5;
+
 //CAN interface messages (Borrowed from the example).
 long unsigned int rxId;
 unsigned char len = 0;
@@ -22,7 +24,7 @@ unsigned char rxBuf[8];
 #define pushButton  17
 #define leftButton  5
 #define upButton    3
-#define redButton   6
+#define redButton   8
 #define greenButton 7
 
 Bounce rightDebouncer = Bounce(); 
@@ -46,7 +48,7 @@ unsigned long lastRXTime = 0;
 
 boolean writeOnce   = false;
 boolean doubleClick = false;
-
+boolean changeModeOK = true;
 
 char str11[9];
 char str12[9];
@@ -54,6 +56,9 @@ char str21[9];
 char str22[9];
 
 uint32_t currentMillis;
+uint32_t changeModeMillis;
+
+uint8_t mode;
 
 void setup() {
 
@@ -145,11 +150,52 @@ void loop() {
   redButtonState = redDebouncer.read();
   greenButtonState = greenDebouncer.read();
 
-  dispSerial.write(254); //escape character
-  dispSerial.write(206); //Move Cursor to the bottom last point on a 16x2 display  
+  
 
   //Calculate a new symbol for button combinations
   //Space is 0x20 or 32
+
+  if (!redButtonState){
+    mode = 0;
+    dispSerial.write(254); // move cursor to beginning of second line (254, 192)
+    dispSerial.write(192);
+    dispSerial.print("              ");
+    dispSerial.write(254); // move cursor to beginning of second line (254, 192)
+    dispSerial.write(192);
+    dispSerial.print("Reset: Mode ");
+    dispSerial.print(mode,DEC);
+  }
+  
+  if (!greenButtonState && !pushButtonState && changeModeOK){
+ 
+    if (!upButtonState) {
+      mode++;
+      if (mode > numModes) mode = 0;
+      changeModeOK = false; 
+      changeModeMillis = currentMillis;
+    }
+    if (!downButtonState) {
+      mode--;
+      if (mode > numModes) mode = numModes;
+      changeModeOK = false;
+      changeModeMillis = currentMillis;  
+    }
+    dispSerial.write(254); // move cursor to beginning of first line (254, 128)
+    dispSerial.write(192);
+    dispSerial.print("              ");
+    dispSerial.write(254); // move cursor to beginning of first line (254, 128)
+    dispSerial.write(192);
+    dispSerial.print("Mode ");
+    dispSerial.print(mode,DEC);
+    writeOnce=false;
+  }
+
+  if (currentMillis - changeModeMillis > 400){
+    changeModeOK = true;
+  }
+
+  dispSerial.write(254); //escape character
+  dispSerial.write(206); //Move Cursor to the bottom next to last point on a 16x2 display  
   char buttonSymbol = 32 + 1*!pushButtonState + 2*!greenButtonState + 4*!redButtonState;
   dispSerial.print(buttonSymbol);
   
@@ -168,8 +214,9 @@ void loop() {
   
   if (currentMillis - lastRXTime > 1200){
     if (!writeOnce){
-      dispSerial.write(254);
-      dispSerial.write(1); //clear screen
+      dispSerial.write(254); // move cursor to beginning of first line (254, 128)
+      dispSerial.write(128);
+      dispSerial.print("                ");
       dispSerial.write(254); // move cursor to beginning of first line (254, 128)
       dispSerial.write(128);
       dispSerial.print("Lost CAN Comms.");
@@ -186,16 +233,17 @@ void loop() {
 void sendJoyStick(){
   if (currentMillis - lastJoyTime >= 50){
     lastJoyTime = currentMillis;
-    bitWrite(joyMessage[0],0,!upButtonState);
-    bitWrite(joyMessage[0],1,!downButtonState);
-    bitWrite(joyMessage[0],2,!leftButtonState);
-    bitWrite(joyMessage[0],3,!rightButtonState);
-    bitWrite(joyMessage[0],4,!pushButtonState);
-    bitWrite(joyMessage[0],5,doubleClick);
-    bitWrite(joyMessage[0],6,!redButtonState);
-    bitWrite(joyMessage[0],7,!greenButtonState);
+    joyMessage[0] = mode;
+    bitWrite(joyMessage[1],0,!upButtonState);
+    bitWrite(joyMessage[1],1,!downButtonState);
+    bitWrite(joyMessage[1],2,!leftButtonState);
+    bitWrite(joyMessage[1],3,!rightButtonState);
+    bitWrite(joyMessage[1],4,!pushButtonState);
+    bitWrite(joyMessage[1],5,doubleClick);
+    bitWrite(joyMessage[1],6,!redButtonState);
+    bitWrite(joyMessage[1],7,!greenButtonState);
     
-    CAN0.sendMsgBuf(0x700, 0, 1, joyMessage );
+    CAN0.sendMsgBuf(0x700, 0, 2, joyMessage );
   }
 }
 /***********************************************************************************************/
@@ -208,7 +256,12 @@ void sendJoyStick(){
 void readCANbus(){
   if(CAN0.checkReceive()){
     CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
-    
+
+    if (rxId == 0x210){
+      numModes=rxBuf[0];
+      //mode = rxBuf[1];
+      lastRXTime = currentMillis;
+    }
    
     uint8_t i = 0; 
     if (rxId == 0x211){ //Display Characters on first quarter of screen
@@ -224,13 +277,14 @@ void readCANbus(){
       dispSerial.write(136); //Move 
       for (i=0;i<8;i++) str12[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str12);
+      lastRXTime = currentMillis;
     }
     else if (rxId == 0x221){
       dispSerial.write(254); //escape character
       dispSerial.write(192); //Move 
       for (i=0;i<8;i++) str21[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str21);
-     
+      lastRXTime = currentMillis;
     }
     else if (rxId == 0x222){
       dispSerial.write(254); //escape character
@@ -244,6 +298,8 @@ void readCANbus(){
       Serial.print(str21);      
       Serial.print(" ");
       Serial.println(str22);
+      writeOnce=true;
+      lastRXTime = currentMillis;
     }
   }
 }
