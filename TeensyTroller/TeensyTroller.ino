@@ -545,6 +545,31 @@ void readCANmessages() {
       int adjustment = atoi(commandValue);
       goalAngle += adjustment;
     }
+    else if (commandPrefix == 'k'){ // set the proportional gain for the angle controller
+      angleK = atof(commandValue);
+    }
+    else if (commandPrefix == 'i'){ // set the integral gain for the angle controller
+      angleI = atof(commandValue);
+    }
+    else if (commandPrefix == 'd'){ // set the derivative gain for the angle controller
+      angleD = atof(commandValue);
+    }
+    else if (commandPrefix == 'K'){ // set the proportional gain for the speed controller
+      speedK = atof(commandValue);
+    }
+    else if (commandPrefix == 'I'){ // set the integral gain for the speed controller
+      speedI = atof(commandValue);
+    }
+    else if (commandPrefix == 'D'){ // set the derivative gain for the speed controller
+      speedD = atof(commandValue);
+    }
+    else if (commandPrefix == 'r'){ // reset the integrator
+      memset(differenceList, 0, sizeof(differenceList)) ;
+    }
+    else if (commandPrefix == 'R'){ // reset the integrator for Speed
+      memset(differenceSpeedList, 0, sizeof(differenceSpeedList)) ;
+    }
+
   }
   upButtonState =    bitRead(buttonByte, 0);
   downButtonState =  bitRead(buttonByte, 1);
