@@ -15,8 +15,10 @@
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
 
-float turnRate = 1.500; //degrees per second
 
+int turnTime = 100; //ms
+
+float turnRate = 1.500; //degrees per second
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
@@ -34,6 +36,8 @@ double speedK = .1;
 double speedI = .3;
 double speedD = 0;
 
+int feedforward = 10;
+int feedforwardSpeed = 22;
 
 //Set up the Kalman filter to smooth the data from the Compass and Rate Gyro.
 // These must be defined before including TinyEKF.h
@@ -270,6 +274,7 @@ float yawAngleRaw = 0;
 
 
 void setup() {
+  turnRate = turnRate * turnTime/1000;
   delay(200);
   Wire.begin();
   Serial.println("Welcome to the Teensy Troller. We will get setup first.");
@@ -343,7 +348,7 @@ void setup() {
     Serial.println("Verifying BNO055 Settings...");
     gyroConfig = getBNO055Status();
   }
-  Serial.println("Done.");
+  Serial.println("Done with setting up the BNO055.");
 
 
 
@@ -355,6 +360,7 @@ void setup() {
 
   Serial.print("Starting GPS... ");
   Serial1.begin(9600);
+  Serial.println("Done.");
   delay(300);
   Serial1.println("$PMTK251,57600*2C"); //Set Baud Rate to 57600
   delay(100);
@@ -363,30 +369,32 @@ void setup() {
   Serial.println("Setting GPS to 57600 baud... ");
   Serial1.begin(57600);
   Serial1.println("$PMTK251,57600*2C"); //Set Baud Rate to 57600
-
+  Serial.println("Done.");
+  
   Serial.println("Setting GPS to update at 5 Hz... ");
   Serial1.println("$PMTK220,200*2C"); //update at 5 Hz
   delay(100);
   Serial1.println("$PMTK300,200,0,0,0,0*2F"); //position fix update to 5 Hz
-  for (int i = 0; i < 100; i++) {
-    if (Serial1.available()) Serial.write(Serial1.read());
-  }
-  Serial.println("\nDone.");
+  Serial.println("Done.");
 
 
   Serial.println("Starting Compass... ");
   compass.init();
   byte bSN_LSB = compass.readEEPROM(SN_LSB);
   byte bSN_MSB = compass.readEEPROM(SN_MSB);
+  Serial.println("Done.");
+  
   Serial.print("Compass Serial Number: ");
   Serial.println(word(bSN_MSB, bSN_LSB));
   compass.writeEEPROM(0x14, 0x00); //Set filter to 0.
   compass.exitStandby();
   delay(100);
-  Serial.println("\nDone.");
 
+  Serial.println("Starting CAN at 500k... ");
   Can0.begin(500000);
+  Serial.println("Done.");
 
+  Serial.println("Sending CAN messages... ");
   strncpy(message, "Fishing ", 8);
   txmsg.id = 0x211; //Send to the upper left
   txmsg.len = 8;
@@ -414,35 +422,20 @@ void setup() {
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
   Can0.write(txmsg);
   delay(50);
+  Serial.println("Done.");
 
   //tft.print("CAN msgs sent");
 
   delay(100);
+  Serial.println("Loading Compass Offsets from EEPROM... ");
   EEPROM.get(compassOffsetAddress, compassOffset);
   EEPROM.get(CANcompassOffsetAddress, CANcompassOffset);
+  Serial.println("Done.");
 
 
   compassHeading = getCompassHeading();
   ekf.setX(0, compassHeading);
   deltaT = double(deltaTms) / 1000.0;
-
-
-
-//  displayTemplate(); //tft display
-  //  Serial.print("Compass");
-  //  Serial.print("\t");
-  //  Serial.print("ekfCompass");
-  //  Serial.print("\t");
-  //  Serial.print("rateGyro");
-  //  Serial.print("\t");
-  //  Serial.print("ekfRateGyro");
-  //  Serial.print("GPSspeed");
-  //  Serial.print("\t");
-  //  Serial.print("ekfSpeed");
-  //  Serial.print("\t");
-  //  Serial.print("Accel");
-  //  Serial.print("\t");
-  //  Serial.println("ekfAccel");
 
 }
 
@@ -491,7 +484,7 @@ void sendCANmessages() {
 
 
 
-void readCANmessages() {
+void readCANandSerialMessages( ) {
   
   uint8_t buttonByte;
   
@@ -568,6 +561,12 @@ void readCANmessages() {
     }
     else if (commandPrefix == 'R'){ // reset the integrator for Speed
       memset(differenceSpeedList, 0, sizeof(differenceSpeedList)) ;
+    }
+    else if (commandPrefix == 'f'){ // reset the integrator for Speed
+      feedforward = atoi(commandValue);
+    }
+    else if (commandPrefix == 'F'){ // reset the integrator for Speed
+      feedforwardSpeed = atoi(commandValue);
     }
 
   }
@@ -799,7 +798,7 @@ void loop() {
   sendCANmessages();
   
   //get user input
-  readCANmessages();
+  readCANandSerialMessages();
   if (CANaliveTimer > 500 && SerialAliveTimer > 500) mode = 0;
   
   if (mode != currentMode) {
@@ -825,7 +824,7 @@ void loop() {
         if (upButtonState && !pushButtonState) goalSpeed += 0.1; //mph
         if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
         goalSpeed = constrain(goalSpeed, 0, 4);
-        speedSetting = 22.0 * goalSpeed; //feed forward
+        speedSetting = feedforwardSpeed * goalSpeed; //feed forward
       }
       if (courseSettingTimer > courseSetTime) {
         courseSettingTimer = 0;
@@ -854,17 +853,17 @@ void loop() {
           rightTurn = true;
         }
       }
-      if (turnTimer > 1000){
+      if (turnTimer >= turnTime){
         turnTimer = 0;
       
         if (rightTurn ) { //right turn slowly for 180 degrees at 1 deg/sec
           goalAngle += turnRate ;
-          turnSetting = 10; //feed forward
+          turnSetting = feedforward; //feed forward
           
         }
         else if (leftTurn) { 
           goalAngle -= turnRate ;
-          turnSetting = -10; //feed forward
+          turnSetting = -feedforward; //feed forward
         }
       }
       
@@ -1012,11 +1011,11 @@ void loop() {
         if (upButtonState && !pushButtonState) goalSpeed += 0.1; //mph
         else if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
         goalSpeed = constrain(goalSpeed, 0, 4);
-        speedSetting = 22.0 * goalSpeed; //feed forward
+        speedSetting = feedforwardSpeed * goalSpeed; //feed forward
       }
       
       if (fig8phase == 0) { //forward for some seconds
-        if (fig8timer >= 80000) {
+        if (fig8timer >= 80000 && distanceToFixPoint > 10) {
           fig8timer = 0;
           fig8phase = 1;
           startAngle = ekfYawAngle; //degrees
@@ -1031,7 +1030,7 @@ void loop() {
         }
         else {
           goalAngle = startAngle + fig8timer / 1000.0; //turn rate of 1 deg/second
-          turnSetting = 10; //feed forward
+          turnSetting = feedforward; //feed forward
         }
       }
       else if (fig8phase == 2) { //Correct towards fixed point
@@ -1049,13 +1048,13 @@ void loop() {
         }
       }
       else if (fig8phase == 3) { //go straight for 120 seconds
-        if (fig8timer >= 100000) {
+        if (fig8timer >= 100000 && distanceToFixPoint > 10) {
           fig8timer = 0;
           fig8phase = 4;
           startAngle = ekfYawAngle; //degrees
         }
       }
-      else if (fig8phase == 4) { //right turn slowly for 180 degrees
+      else if (fig8phase == 4) { //left turn slowly for 180 degrees
         if (fig8timer >= 180000) {
           fig8timer = 0;
           fig8phase = 5;
@@ -1064,15 +1063,15 @@ void loop() {
         }
         else {
           goalAngle = startAngle - fig8timer / 1000.0; //turn rate of 1 deg/second (in opposite direction)
-          turnSetting = -10; //feed forward
+          turnSetting = -feedforward; //feed forward
         }
       }
       else if (fig8phase == 5) { //Correct towards fixed point
         if (distanceToFixPoint > 10) {
           double angleDifference = courseToFixPoint - goalAngle;
           if (fig8timer >= 100) {
-            goalAngle += 0.1 * angleDifference / abs(angleDifference); //1 degree per second in the direction make the angle difference smaller
             fig8timer = 0;
+            goalAngle += 0.1 * angleDifference / abs(angleDifference); //1 degree per second in the direction make the angle difference smaller
           }
         }
         else {//go straight once within 10 meters.
@@ -1081,7 +1080,7 @@ void loop() {
         }
       }
       else if (fig8phase == 6) { //forward for 20 seconds
-        if (fig8timer >= 20000) {
+        if (fig8timer >= 20000 && distanceToFixPoint > 10) {
           fig8timer = 0;
           fig8phase = 0;
         }
