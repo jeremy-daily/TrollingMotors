@@ -15,14 +15,9 @@
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
 
-<<<<<<< HEAD
-
-int turnTime = 100; //ms
 
 float turnRate = 0.75; //degrees per second
-=======
-float turnRate = 1.5; //degrees per second
->>>>>>> parent of 5449230... Fixed turn rate
+int turnTime = 100;
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
@@ -394,15 +389,9 @@ void setup() {
   compass.exitStandby();
   delay(100);
 
-<<<<<<< HEAD
   Serial.println("Starting CAN at 500k... ");
   Can0.begin(500000);
   Serial.println("Done.");
-=======
-  //tft.println("Starting CAN");
-  delay(100);
-  CANbus.begin();
->>>>>>> parent of 5449230... Fixed turn rate
 
   Serial.println("Sending CAN messages... ");
   strncpy(message, "Fishing ", 8);
@@ -873,8 +862,6 @@ void getMeasurements() {
     if (ekfYawAngle < 0)    ekfYawAngle += 360;
     ekf.setX(0, ekfYawAngle);
   }
-<<<<<<< HEAD
-=======
 
   //get user input
   //readCANmessages();
@@ -887,7 +874,6 @@ void getMeasurements() {
     gps.encode(c);
   }
 
->>>>>>> parent of 5449230... Fixed turn rate
   
   while (Serial1.available()) gps.encode(Serial1.read());
 }
@@ -898,15 +884,11 @@ void loop() {
 
   //send stuff
   sendCANmessages();
-<<<<<<< HEAD
   
   //get user input
   readCANandSerialMessages();
   if (CANaliveTimer > 500) mode = 0;
   
-=======
-
->>>>>>> parent of 5449230... Fixed turn rate
   if (mode != currentMode) {
     resetOutputs();
     debugDataHeader();
@@ -959,7 +941,6 @@ void loop() {
           rightTurn = true;
         }
       }
-<<<<<<< HEAD
       if (turnTimer >= turnTime){
         turnTimer = 0;
       
@@ -972,13 +953,6 @@ void loop() {
           goalAngle -= turnRate ;
           turnSetting = -feedforward; //feed forward
         }
-=======
-
-      if (rightTurn) { //right turn slowly for 180 degrees at 1 deg/sec
-        goalAngle += turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
-        turnSetting = 10; //feed forward
-        
->>>>>>> parent of 5449230... Fixed turn rate
       }
       else if (leftTurn) { //right turn slowly for 180 degrees at 1 deg/sec
         goalAngle -= turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
@@ -1535,15 +1509,8 @@ void displayDefault() {
     modeDisplayTimer = 0;
     sprintf(topLine, "OFF O:%5.1f N:%2i", compassOffset, int(gps.satellites.value()));
     displayTopLine(topLine);
-<<<<<<< HEAD
     sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
     displayBottomLine(botLine);
-=======
-    Serial.println(topLine);
-    sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
-    displayBottomLine(botLine);
-    Serial.println(botLine);
->>>>>>> parent of 5449230... Fixed turn rate
   }
 }
 
@@ -1672,23 +1639,19 @@ void displayLowerLeft8(char message[9]) {
   txmsg.id = 0x221; //sent to the lower right
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
   CANbus.write(txmsg);
->>>>>>> parent of 5449230... Fixed turn rate
 }
 
 
 void displayLowerRight8(char message[9]) {
-<<<<<<< HEAD
   if (lowerRightTimer > 100){
     lowerRightTimer = 0;
     txmsg.id = 0x222; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
     Can0.write(txmsg);
   }
-=======
   txmsg.id = 0x222; //sent to the lower right
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
   CANbus.write(txmsg);
->>>>>>> parent of 5449230... Fixed turn rate
 }
 
 void displayTopLine(char _topLine[17]) {
