@@ -15,10 +15,14 @@
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
 
+<<<<<<< HEAD
 
 int turnTime = 100; //ms
 
 float turnRate = 0.75; //degrees per second
+=======
+float turnRate = 1.5; //degrees per second
+>>>>>>> parent of 5449230... Fixed turn rate
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
@@ -252,7 +256,7 @@ Servo rightServo;  // create servo object to control a servo
 Servo leftServo;  // create servo object to control a servo
 
 //Set up CAN messaging
-FlexCAN CANbus();
+FlexCAN CANbus(500000);
 static CAN_message_t txmsg, rxmsg;
 uint32_t CANTXcount = 0;
 uint32_t CANRXcount = 0;
@@ -390,37 +394,43 @@ void setup() {
   compass.exitStandby();
   delay(100);
 
+<<<<<<< HEAD
   Serial.println("Starting CAN at 500k... ");
   Can0.begin(500000);
   Serial.println("Done.");
+=======
+  //tft.println("Starting CAN");
+  delay(100);
+  CANbus.begin();
+>>>>>>> parent of 5449230... Fixed turn rate
 
   Serial.println("Sending CAN messages... ");
   strncpy(message, "Fishing ", 8);
   txmsg.id = 0x211; //Send to the upper left
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  Can0.write(txmsg);
+  CANbus.write(txmsg);
   delay(50);
 
   strncpy(message, "is great", 8);
   txmsg.id = 0x212; //sent to the upper right
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  Can0.write(txmsg);
+  CANbus.write(txmsg);
   delay(50);
 
   strncpy(message, "today. H", 8);
   txmsg.id = 0x221; //sent to the lower left
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  Can0.write(txmsg);
+  CANbus.write(txmsg);
   delay(50);
 
   strncpy(message, "ave fun.", 8);
   txmsg.id = 0x222; //sent to the lower right
   txmsg.len = 8;
   for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
-  Can0.write(txmsg);
+  CANbus.write(txmsg);
   delay(50);
   Serial.println("Done.");
 
@@ -441,27 +451,27 @@ void setup() {
 
 
 void sendCANmessages() {
-  if (broadcastCANtimer >= 200) {
-    broadcastCANtimer = 0;
-
-    //GPS Messages
-    if (gps.speed.isUpdated() ) {
-      txmsg.id = 0x43e;
-      txmsg.len = 8;
-
-      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
-      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
-      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
-      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
-      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
-      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
-      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
-      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
-
-      Can0.write(txmsg);
-      CANTXcount++;
-    }
-  }
+//  if (broadcastCANtimer >= 200) {
+//    broadcastCANtimer = 0;
+//
+//    //GPS Messages
+//    if (gps.speed.isUpdated() ) {
+//      txmsg.id = 0x43e;
+//      txmsg.len = 8;
+//
+//      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
+//      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
+//      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
+//      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
+//      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
+//      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
+//      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
+//      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
+//
+//      CANbus.write(txmsg);
+//      CANTXcount++;
+//    }
+//  }
 
   if (broadcastCANmodeTimer >= deltaTms) {
     broadcastCANmodeTimer = 0;
@@ -477,7 +487,7 @@ void sendCANmessages() {
     txmsg.buf[6] = 0xFF;
     txmsg.buf[7] = 0xFF;
 
-    Can0.write(txmsg);
+    CANbus.write(txmsg);
 
   }
 }
@@ -490,6 +500,7 @@ void readCANandSerialMessages( ) {
   
   if ( Can0.read(rxmsg)) { //Give precedent to the serial connections
     
+<<<<<<< HEAD
     waitingForCANtimer = 0; //reset the can message timeout
     ID = rxmsg.id;
     if (ID == 0x700) {
@@ -515,6 +526,74 @@ void readCANandSerialMessages( ) {
       dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
     }
   }
+=======
+  }
+//  while ( CANbus.read(rxmsg) ) {
+//    waitingForCANtimer = 0; //reset the can message timeout
+//    ID = rxmsg.id;
+//    if (ID == 0x700) {
+//      CANaliveTimer = 0;
+//      mode = rxmsg.buf[0];
+//      upButtonState = bitRead(rxmsg.buf[1], 0);
+//      downButtonState = bitRead(rxmsg.buf[1], 1);
+//      leftButtonState = bitRead(rxmsg.buf[1], 2);
+//      rightButtonState = bitRead(rxmsg.buf[1], 3);
+//      pushButtonState = bitRead(rxmsg.buf[1], 4);
+//    }
+//    if (ID == 0x43c) {
+//      CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+//    }
+//    else if (ID == 0x43d) {
+//      CANheading = (rxmsg.buf[6] * 256 + rxmsg.buf[7]) / 10.;
+//    }
+//    else if (ID == 0x43e) {
+//      headingReading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+//      gpsSpeed = (rxmsg.buf[2] * 256 + rxmsg.buf[3]) * 1.15078; // + 0.5;
+//      gpsAngle = (rxmsg.buf[4] * 256 + rxmsg.buf[5]);
+//      gpsSats  = rxmsg.buf[6];
+//      gpsFix   = rxmsg.buf[7];
+//    }
+//    else if (ID == 0x441) {
+//      headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
+//      dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
+//    }
+//  }
+}
+
+/*
+void displayTemplate() {
+  //tft.fillScreen(ILI9341_BLACK);
+  //tft.setCursor(0, 0);
+  //tft.print("Mode:X Sat:XX");
+
+  //tft.setCursor(0, 30);
+  //tft.print("Heading:  XXX");
+
+  //tft.setCursor(0, 60);
+  //tft.print("CAN Angle:XXX");
+
+  //tft.setCursor(0, 90);
+  //tft.print("GPS Headn:XXX");
+
+  //tft.setCursor(0, 120);
+  //tft.print("GoalAngle:XXX");
+
+  //tft.setCursor(0, 150);
+  //tft.print("GPSSpeed:XX.X");
+
+  //tft.setCursor(0, 180);
+  //tft.print("GoalSpeed:X.X");
+
+  //tft.setCursor(0, 210);
+  //tft.print("LeftMotor:XXX");
+
+  //tft.setCursor(0, 240);
+  //tft.print("RghtMotor:XXX");
+
+  //tft.setCursor(0, 270);
+  //tft.print("YawRate:XXX.X");
+
+>>>>>>> parent of 5449230... Fixed turn rate
 
   /*
    * Recieve and process Serial commands. THe structure is:
@@ -794,6 +873,21 @@ void getMeasurements() {
     if (ekfYawAngle < 0)    ekfYawAngle += 360;
     ekf.setX(0, ekfYawAngle);
   }
+<<<<<<< HEAD
+=======
+
+  //get user input
+  //readCANmessages();
+  //if (CANaliveTimer > 500) mode = 0;
+
+  while (Serial1.available())
+  {
+    char c = Serial1.read();
+    //Serial.print(c); //used for debugging
+    gps.encode(c);
+  }
+
+>>>>>>> parent of 5449230... Fixed turn rate
   
   while (Serial1.available()) gps.encode(Serial1.read());
 }
@@ -804,11 +898,15 @@ void loop() {
 
   //send stuff
   sendCANmessages();
+<<<<<<< HEAD
   
   //get user input
   readCANandSerialMessages();
   if (CANaliveTimer > 500) mode = 0;
   
+=======
+
+>>>>>>> parent of 5449230... Fixed turn rate
   if (mode != currentMode) {
     resetOutputs();
     debugDataHeader();
@@ -861,6 +959,7 @@ void loop() {
           rightTurn = true;
         }
       }
+<<<<<<< HEAD
       if (turnTimer >= turnTime){
         turnTimer = 0;
       
@@ -873,8 +972,19 @@ void loop() {
           goalAngle -= turnRate ;
           turnSetting = -feedforward; //feed forward
         }
+=======
+
+      if (rightTurn) { //right turn slowly for 180 degrees at 1 deg/sec
+        goalAngle += turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
+        turnSetting = 10; //feed forward
+        
+>>>>>>> parent of 5449230... Fixed turn rate
       }
-      
+      else if (leftTurn) { //right turn slowly for 180 degrees at 1 deg/sec
+        goalAngle -= turnRate * turnTimer / 1000.0; //turn rate of 1 deg/second
+        turnSetting = -10; //feed forward
+      }
+
       calculateMotorOutput();
 
 
@@ -1425,8 +1535,15 @@ void displayDefault() {
     modeDisplayTimer = 0;
     sprintf(topLine, "OFF O:%5.1f N:%2i", compassOffset, int(gps.satellites.value()));
     displayTopLine(topLine);
+<<<<<<< HEAD
     sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
     displayBottomLine(botLine);
+=======
+    Serial.println(topLine);
+    sprintf(botLine, "H:%3i C:%3i S%2.1f", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
+    displayBottomLine(botLine);
+    Serial.println(botLine);
+>>>>>>> parent of 5449230... Fixed turn rate
   }
 }
 
@@ -1514,6 +1631,7 @@ void displayFrequencySweeps() {
 /*****************************************************************************************/
 /* DISPLAY HELPER FUNCTIONS */
 void displayUpperLeft8(char message[9]) {
+<<<<<<< HEAD
   if (upperLeftTimer > 100){
     upperLeftTimer = 0;
     txmsg.id = 0x211; //sent to the lower right
@@ -1538,16 +1656,39 @@ void displayLowerLeft8(char message[9]) {
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
     Can0.write(txmsg);
   }
+=======
+  txmsg.id = 0x211; //sent to the lower right
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+}
+
+void displayUpperRight8(char message[9]) {
+  txmsg.id = 0x212; //sent to the lower right
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+}
+
+void displayLowerLeft8(char message[9]) {
+  txmsg.id = 0x221; //sent to the lower right
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+>>>>>>> parent of 5449230... Fixed turn rate
 }
 
 
 void displayLowerRight8(char message[9]) {
+<<<<<<< HEAD
   if (lowerRightTimer > 100){
     lowerRightTimer = 0;
     txmsg.id = 0x222; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
     Can0.write(txmsg);
   }
+=======
+  txmsg.id = 0x222; //sent to the lower right
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+>>>>>>> parent of 5449230... Fixed turn rate
 }
 
 void displayTopLine(char _topLine[17]) {
