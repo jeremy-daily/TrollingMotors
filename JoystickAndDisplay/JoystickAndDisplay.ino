@@ -57,18 +57,6 @@ uint32_t currentMillis;
 <<<<<<< HEAD
 uint32_t changeModeMillis;
 
-uint32_t lastChangeMillis = 0;
-uint32_t lastChangeMillis212 = 20;
-uint32_t lastChangeMillis221 = 40;
-uint32_t lastChangeMillis222 = 60;
-uint8_t disp_delay = 30;
-
-boolean update211 = true;
-boolean update212 = true;
-boolean update221 = true;
-boolean update222 = true;
-
-
 uint8_t mode;
 =======
 >>>>>>> parent of 5449230... Fixed turn rate
@@ -84,8 +72,8 @@ void setup() {
 
   CAN0.setMode(MCP_NORMAL);   // Change to normal mode to allow messages to be transmitted
 
-  CAN0.init_Mask(0,1,0x233);
-  CAN0.init_Mask(2,1,0x233);
+  CAN0.init_Mask(0,1,0x7FF);
+  CAN0.init_Mask(2,1,0x7FF);
   
   CAN0.init_Filt(0,1,0x211 ^ 0x7FF);
   CAN0.init_Filt(1,1,0x212 ^ 0x7FF);
@@ -119,7 +107,7 @@ void setup() {
   greenDebouncer.interval(15); // interval in ms
 
   dispSerial.begin(9600);
-  delay(10);
+  delay(500);
 
   // dispSerial.write(0x7C);
   // dispSerial.write(157); //Full Brightness
@@ -181,7 +169,8 @@ void loop() {
   else if (!upButtonState) dispSerial.print("U");
   else dispSerial.print(" ");
 
-  for (int i =0; i<32;i++) readCANbus();
+   
+  readCANbus();
   
   if (currentMillis - lastRXTime > 1200){
     if (!writeOnce){
@@ -224,6 +213,7 @@ void sendJoyStick(){
 
 void readCANbus(){
 <<<<<<< HEAD
+<<<<<<< HEAD
   CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
   byte i = 0;
   if (rxId == 0x210){
@@ -241,16 +231,32 @@ void readCANbus(){
     uint8_t i = 0; 
     if (rxId == 0x211){ //Display Characters on first quarter of screen
 >>>>>>> parent of 5449230... Fixed turn rate
+=======
+  if(CAN0.checkReceive()){
+    CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
+
+    if (rxId == 0x210){
+      numModes=rxBuf[0];
+      //mode = rxBuf[1];
+      lastRXTime = currentMillis;
+    }
+   
+    uint8_t i = 0; 
+    if (rxId == 0x211){ //Display Characters on first quarter of screen
+>>>>>>> parent of 20eefee... Improved CAN Display
       dispSerial.write(254); //escape character
       dispSerial.write(128); //Move Cursor
       for (i=0;i<8;i++) str11[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str11);
-  }
-  else if (rxId == 0x212 && update212){
-   dispSerial.write(254); //escape character
-   dispSerial.write(136); //Move 
+      
+      lastRXTime = currentMillis;
+    }
+    else if (rxId == 0x212){
+      dispSerial.write(254); //escape character
+      dispSerial.write(136); //Move 
       for (i=0;i<8;i++) str12[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str12);
+<<<<<<< HEAD
 <<<<<<< HEAD
   }
   else if (rxId == 0x221 && update221){
@@ -265,13 +271,20 @@ void readCANbus(){
     for (i = 0; i < 8 ; i++) str22[i] = constrain(rxBuf[i],32,126);
     dispSerial.print(str22);
 =======
+=======
+      lastRXTime = currentMillis;
+>>>>>>> parent of 20eefee... Improved CAN Display
     }
     else if (rxId == 0x221){
       dispSerial.write(254); //escape character
       dispSerial.write(192); //Move 
       for (i=0;i<8;i++) str21[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str21);
+<<<<<<< HEAD
      
+=======
+      lastRXTime = currentMillis;
+>>>>>>> parent of 20eefee... Improved CAN Display
     }
     else if (rxId == 0x222){
       dispSerial.write(254); //escape character
@@ -285,8 +298,14 @@ void readCANbus(){
       Serial.print(str21);      
       Serial.print(" ");
       Serial.println(str22);
+<<<<<<< HEAD
     }
 >>>>>>> parent of 5449230... Fixed turn rate
+=======
+      writeOnce=true;
+      lastRXTime = currentMillis;
+    }
+>>>>>>> parent of 20eefee... Improved CAN Display
   }
 }
 
