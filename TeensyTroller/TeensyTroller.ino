@@ -18,7 +18,7 @@
 
 int turnTime = 100; //ms
 
-float turnRate = 1.500; //degrees per second
+float turnRate = 0.75; //degrees per second
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
@@ -488,7 +488,8 @@ void readCANandSerialMessages( ) {
   
   uint8_t buttonByte;
   
-  if ( Can0.read(rxmsg) && SerialAliveTimer < 500) { //Give precedent to the serial connections
+  if ( Can0.read(rxmsg)) { //Give precedent to the serial connections
+    
     waitingForCANtimer = 0; //reset the can message timeout
     ID = rxmsg.id;
     if (ID == 0x700) {
@@ -521,55 +522,61 @@ void readCANandSerialMessages( ) {
    * Byte 1: command (0 to 255)
    * Bytes 2 to 2+length: command values less than 62 bytes.
    */
-  if (Serial.available() >= 2)
-  {
-    SerialAliveTimer = 0;
-    char commandLength = Serial.read();
-    char commandPrefix = Serial.read();
-    char commandValue[commandLength];
-    for (uint8_t i = 0; i<commandLength; i++) commandValue[i] = Serial.read();
-    
-    if (commandPrefix == 'b')  buttonByte = commandValue[0]; //Button
-    else if (commandPrefix == 'm') { //mode
-      mode = commandValue[0];
-      //sendCANModeCommand(); 
-    }
-    else if (commandPrefix == 't'){ //turn
-      int adjustment = atoi(commandValue);
-      goalAngle += adjustment;
-    }
-    else if (commandPrefix == 'k'){ // set the proportional gain for the angle controller
-      angleK = atof(commandValue);
-    }
-    else if (commandPrefix == 'i'){ // set the integral gain for the angle controller
-      angleI = atof(commandValue);
-    }
-    else if (commandPrefix == 'd'){ // set the derivative gain for the angle controller
-      angleD = atof(commandValue);
-    }
-    else if (commandPrefix == 'K'){ // set the proportional gain for the speed controller
-      speedK = atof(commandValue);
-    }
-    else if (commandPrefix == 'I'){ // set the integral gain for the speed controller
-      speedI = atof(commandValue);
-    }
-    else if (commandPrefix == 'D'){ // set the derivative gain for the speed controller
-      speedD = atof(commandValue);
-    }
-    else if (commandPrefix == 'r'){ // reset the integrator
-      memset(differenceList, 0, sizeof(differenceList)) ;
-    }
-    else if (commandPrefix == 'R'){ // reset the integrator for Speed
-      memset(differenceSpeedList, 0, sizeof(differenceSpeedList)) ;
-    }
-    else if (commandPrefix == 'f'){ // reset the integrator for Speed
-      feedforward = atoi(commandValue);
-    }
-    else if (commandPrefix == 'F'){ // reset the integrator for Speed
-      feedforwardSpeed = atoi(commandValue);
-    }
-
-  }
+//  if (Serial.available() >= 2)
+//  {
+//    SerialAliveTimer = 0;
+//    char commandLength = Serial.read();
+//    char commandPrefix = Serial.read();
+//    char commandValue[commandLength];
+//    Serial.println(commandPrefix);
+//    
+//    for (uint8_t i = 0; i<commandLength; i++){
+//      commandValue[i] = Serial.read();
+//      Serial.print(commandValue[i]);
+//    
+//    }
+//    Serial.println();
+//    if (commandPrefix == 'b')  buttonByte = commandValue[0]; //Button
+//    else if (commandPrefix == 'm') { //mode
+//      mode = commandValue[0];
+//      //sendCANModeCommand(); 
+//    }
+//    else if (commandPrefix == 't'){ //turn
+//      int adjustment = atoi(commandValue);
+//      goalAngle += adjustment;
+//    }
+//    else if (commandPrefix == 'k'){ // set the proportional gain for the angle controller
+//      angleK = atof(commandValue);
+//    }
+//    else if (commandPrefix == 'i'){ // set the integral gain for the angle controller
+//      angleI = atof(commandValue);
+//    }
+//    else if (commandPrefix == 'd'){ // set the derivative gain for the angle controller
+//      angleD = atof(commandValue);
+//    }
+//    else if (commandPrefix == 'K'){ // set the proportional gain for the speed controller
+//      speedK = atof(commandValue);
+//    }
+//    else if (commandPrefix == 'I'){ // set the integral gain for the speed controller
+//      speedI = atof(commandValue);
+//    }
+//    else if (commandPrefix == 'D'){ // set the derivative gain for the speed controller
+//      speedD = atof(commandValue);
+//    }
+//    else if (commandPrefix == 'r'){ // reset the integrator
+//      memset(differenceList, 0, sizeof(differenceList)) ;
+//    }
+//    else if (commandPrefix == 'R'){ // reset the integrator for Speed
+//      memset(differenceSpeedList, 0, sizeof(differenceSpeedList)) ;
+//    }
+//    else if (commandPrefix == 'f'){ // reset the integrator for Speed
+//      feedforward = atoi(commandValue);
+//    }
+//    else if (commandPrefix == 'F'){ // reset the integrator for Speed
+//      feedforwardSpeed = atoi(commandValue);
+//    }
+//
+//  }
   upButtonState =    bitRead(buttonByte, 0);
   downButtonState =  bitRead(buttonByte, 1);
   leftButtonState =  bitRead(buttonByte, 2);
@@ -577,6 +584,7 @@ void readCANandSerialMessages( ) {
   pushButtonState =  bitRead(buttonByte, 4);
   greenButtonState = bitRead(buttonByte, 6);
   redButtonState =   bitRead(buttonByte, 7);
+  //Serial.println(buttonByte,BIN);
 }
 
     
@@ -799,7 +807,7 @@ void loop() {
   
   //get user input
   readCANandSerialMessages();
-  if (CANaliveTimer > 500 && SerialAliveTimer > 500) mode = 0;
+  if (CANaliveTimer > 500) mode = 0;
   
   if (mode != currentMode) {
     resetOutputs();
@@ -1610,7 +1618,7 @@ void  calculateMotorOutput() {
     int tempRightMotor = int((speedSetting + speedAdjust - turnSetting - angleSetting + stopMotorValue) * biasSetting);
     int tempLeftMotor  = int( speedSetting + speedAdjust + turnSetting + angleSetting + stopMotorValue) ;
     rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
-    leftMotor  = constrain(tempLeftMotor, maxRevMotorValue, maxFwdMotorValue);
+    leftMotor  = constrain(tempLeftMotor,  maxRevMotorValue, maxFwdMotorValue);
 
 
     //print
