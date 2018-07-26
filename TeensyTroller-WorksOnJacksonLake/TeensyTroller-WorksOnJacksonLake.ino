@@ -24,7 +24,7 @@ double compassOffset = -10.8;// True - measured, so measured + offset = true
 
 //PID Gain Constants. Tune these for best results.
 //Field Test result worked with angleK = 4, angleI = .3, angleD = 25. Determined on 20 July 2016 on Skiatook Lake
-//Field Test result worked with angleK = 8, angleI = .3, angleD = 30. Determined on 25 July 2018 on Jackson Lake
+//Field Test result worked with angleK = 4, angleI = .3, angleD = 25. Determined on 20 July 2016 on Skiatook Lake
 double angleK = 8;
 double angleI = .3;
 double angleD = 30;
