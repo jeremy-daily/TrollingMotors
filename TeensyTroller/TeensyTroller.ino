@@ -243,7 +243,9 @@ float yawAngleRaw = 0;
 
 uint8_t leftMotor = 92;
 uint8_t rightMotor = 92;
-
+uint8_t previousLeftMotor = 92;
+uint8_t previousRightMotor = 92;
+uint8_t motorChange = 1;
 
 //Initialize the GPS
 TinyGPSPlus gps;
@@ -322,8 +324,6 @@ void displayBottomLine(char _botLine[17]) {
 
 
 void setup() {
-  turnRate = turnRate * turnTime/1000;
-  delay(200);
   Wire.begin();
   Serial.println("Welcome to the Teensy Troller. We will get setup first.");
 
@@ -526,9 +526,27 @@ void  calculateMotorOutput() {
     
     int tempRightMotor = int((speedSetting + speedAdjust - turnSetting - angleSetting + stopMotorValue) * biasSetting);
     int tempLeftMotor  = int( speedSetting + speedAdjust + turnSetting + angleSetting + stopMotorValue);
+    
+    if (tempRightMotor - previousRightMotor > motorChange){
+      tempRightMotor = previousRightMotor + motorChange;
+    }
+    else if (previousRightMotor - tempRightMotor > motorChange){
+      tempRightMotor = previousRightMotor - motorChange;
+    }
+    
+    if (tempLeftMotor - previousLeftMotor > motorChange){
+      tempLeftMotor = previousLeftMotor + motorChange;
+    }
+    else if (previousLeftMotor - tempLeftMotor > motorChange){
+      tempLeftMotor = previousLeftMotor - motorChange;
+    }
+    
     rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
     leftMotor  = constrain(tempLeftMotor,  maxRevMotorValue, maxFwdMotorValue);
 
+    previousRightMotor = rightMotor;
+    previousLeftMotor = leftMotor;
+    
 
     //print
     debugData();
@@ -565,7 +583,7 @@ void sendCANmessages() {
     txmsg.id = 0x210;
     txmsg.len = 8;
 
-    txmsg.buf[0] = numberOfModes;
+    txmsg.buf[0] = numberOfModes; 
     txmsg.buf[1] = mode;
     txmsg.buf[2] = byte( (int(goalAngle*10) & 0x0000FF00) >> 8);
     txmsg.buf[3] = byte( (int(goalAngle*10) & 0x000000FF));
@@ -866,7 +884,7 @@ void loop() {
         speedSettingTimer = 0;
         if (upButtonState && !pushButtonState) goalSpeed += 0.1; //mph
         if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
-        goalSpeed = constrain(goalSpeed, 0, 4);
+        goalSpeed = constrain(goalSpeed, 0, 6);
         speedSetting = feedforwardSpeed * goalSpeed; //feed forward
       }
       if (courseSettingTimer > courseSetTime) {
@@ -900,12 +918,12 @@ void loop() {
         turnTimer = 0;
       
         if (rightTurn ) { //right turn slowly for 180 degrees at 1 deg/sec
-          goalAngle += turnRate ;
+          goalAngle += turnRate*turnTime/1000 ;
           turnSetting = feedforward; //feed forward
           
         }
         else if (leftTurn) { 
-          goalAngle -= turnRate ;
+          goalAngle -= turnRate*turnTime/1000 ;
           turnSetting = -feedforward; //feed forward
         }
       }
@@ -1085,12 +1103,12 @@ void loop() {
     if (mode5started) {
       debugData();
       if (upButtonState) {
-        rightMotor = int( 0.8 * maxFwdMotorValue * biasSetting);
-        leftMotor = int(0.8 * maxFwdMotorValue);
+        rightMotor = int( 0.9 * maxFwdMotorValue * biasSetting);
+        leftMotor = int(0.9 * maxFwdMotorValue);
       }
       else if (downButtonState) {
-        rightMotor = int(0.8 * maxRevMotorValue) * biasSetting;
-        leftMotor = int(0.8 * maxRevMotorValue);
+        rightMotor = int(1.1 * maxRevMotorValue) * biasSetting;
+        leftMotor = int(1.1 * maxRevMotorValue);
       }
       else if (rightButtonState) {
         rightMotor = maxRevMotorValue;
@@ -1226,9 +1244,7 @@ void resetOutputs() {
 
   compass.exitStandby();
 
-  //tft.fillScreen(ILI9341_GREEN);
   delay(50);
-  //displayTemplate();
   currentMode = mode;
 
   //reset the integrator
@@ -1239,6 +1255,8 @@ void resetOutputs() {
   rightMotor = stopMotorValue;
   leftMotor  = stopMotorValue;
   previousAngleSetting = 0;
+  leftTurn = false;
+  rightTurn = false;
 }
 
 
