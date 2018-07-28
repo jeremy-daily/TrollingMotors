@@ -173,6 +173,7 @@ elapsedMillis broadcastCANtimer; //set up intervals
 elapsedMillis waitingForCANtimer;
 elapsedMillis debugSerialtimer;
 elapsedMillis modeDisplayTimer;
+elapsedMillis modeChangeTimer;
 elapsedMillis CANaliveTimer;
 elapsedMillis SerialAliveTimer;
 elapsedMillis speedSettingTimer;
@@ -465,95 +466,6 @@ void setup() {
   lowerRightTimer = 150;
 }
 
-void  calculateMotorOutput() {
-  if (goalAngle > 360) goalAngle -= 360;
-  if (goalAngle < 0) goalAngle += 360;
-
-  if (calculateMotorOutputTimer >= deltaTms) {
-    calculateMotorOutputTimer = 0;
-
-    difference = goalAngle - ekfYawAngle; //using Kalman Filter output for input
-    if (difference <= -180)  difference += 360;
-    if (difference >= 180)  difference -= 360;
-
-    if (abs(turnSetting) < 15) { //Suspend while changing course to reduce integral wind-up. The turnSetting is a feed-forward variablet
-      differenceList[diffIndex] = int32_t(difference * 1000);
-      diffIndex += 1;
-      if (diffIndex >= memorySize) diffIndex = 0;
-    }
-
-    int32_t sum = 0;
-    for (int j = 0; j < memorySize; j++) {
-      sum += differenceList[j];
-    }
-
-    integral = double(sum) / 1000.0 * deltaT;
-
-    if (gps.speed.isUpdated())
-    {
-      speedDifference = goalSpeed - ekfSpeed;
-
-      differenceSpeedList[diffIndex] = int32_t(speedDifference * 1000);
-      diffSpeedIndex += 1;
-      if (diffSpeedIndex >= memorySize) diffSpeedIndex = 0;
-
-      int32_t speedSum = 0;
-      for (int j = 0; j < memorySize; j++) speedSum += differenceSpeedList[j];
-
-      double integralSpeed = double(speedSum) / 1000.0 * deltaT;
-
-      speedAdjust = constrain(int(speedK * speedDifference + speedI * integralSpeed),-50,50);
-      //Change the motor ouptut slowly to avoid pulsing motion.
-      if (speedAdjust - previousSpeedAdjust > changeLimit){
-        speedAdjust = previousSpeedAdjust + changeLimit;
-      }
-      else if (previousSpeedAdjust - speedAdjust > changeLimit){
-        speedAdjust = previousSpeedAdjust - changeLimit;
-      }
-      previousSpeedAdjust = speedAdjust;
-    }
-
-
-    angleSetting = constrain(int(angleK * difference + angleI * integral + angleD * ekfYawRate),-100,100);
-    //Change the motor ouptut slowly to avoid pulsing motion.
-    if (angleSetting - previousAngleSetting > changeLimit){
-      angleSetting = previousAngleSetting + changeLimit;
-    }
-    else if (previousAngleSetting - angleSetting > changeLimit){ // Switch order of operations for negative numbers
-      angleSetting = previousAngleSetting - changeLimit;
-    }
-    previousAngleSetting = angleSetting;
-    
-    int tempRightMotor = int((speedSetting + speedAdjust - turnSetting - angleSetting + stopMotorValue) * biasSetting);
-    int tempLeftMotor  = int( speedSetting + speedAdjust + turnSetting + angleSetting + stopMotorValue);
-    
-    if (tempRightMotor - previousRightMotor > motorChange){
-      tempRightMotor = previousRightMotor + motorChange;
-    }
-    else if (previousRightMotor - tempRightMotor > motorChange){
-      tempRightMotor = previousRightMotor - motorChange;
-    }
-    
-    if (tempLeftMotor - previousLeftMotor > motorChange){
-      tempLeftMotor = previousLeftMotor + motorChange;
-    }
-    else if (previousLeftMotor - tempLeftMotor > motorChange){
-      tempLeftMotor = previousLeftMotor - motorChange;
-    }
-    
-    rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
-    leftMotor  = constrain(tempLeftMotor,  maxRevMotorValue, maxFwdMotorValue);
-
-    previousRightMotor = rightMotor;
-    previousLeftMotor = leftMotor;
-    
-
-    //print
-    debugData();
-  }
-
-}
-
 
 void sendCANmessages() {
   if (broadcastCANtimer >= 200) {
@@ -608,9 +520,27 @@ void readCANandSerialMessages( ) {
     ID = rxmsg.id;
     if (ID == 0x700) {
       CANaliveTimer = 0;
-      mode = rxmsg.buf[0];
-      buttonByte = rxmsg.buf[1];
+      buttonByte = rxmsg.buf[0];
+      upButtonState =    bitRead(buttonByte, 0);
+      downButtonState =  bitRead(buttonByte, 1);
+      leftButtonState =  bitRead(buttonByte, 2);
+      rightButtonState = bitRead(buttonByte, 3);
+      pushButtonState =  bitRead(buttonByte, 4);
+      greenButtonState = bitRead(buttonByte, 6);
+      redButtonState =   bitRead(buttonByte, 7);
+      if (redButtonState) mode = 0;
       
+      if (modeChangeTimer > 500){
+        modeChangeTimer = 0;
+        if (greenButtonState && upButtonState) {
+          mode +=1;
+          if (mode > numberOfModes) mode = 0;
+        }
+        else if (greenButtonState && downButtonState) {
+          mode -=1;
+          if (mode < 0) mode = numberOfModes;
+        }
+      }
     }
     if (ID == 0x43c) {
       CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
@@ -630,13 +560,7 @@ void readCANandSerialMessages( ) {
       dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
     }
   
-  upButtonState =    bitRead(buttonByte, 0);
-  downButtonState =  bitRead(buttonByte, 1);
-  leftButtonState =  bitRead(buttonByte, 2);
-  rightButtonState = bitRead(buttonByte, 3);
-  pushButtonState =  bitRead(buttonByte, 4);
-  greenButtonState = bitRead(buttonByte, 6);
-  redButtonState =   bitRead(buttonByte, 7);
+  
   //Serial.println(buttonByte,BIN);
 }
 
@@ -1351,3 +1275,94 @@ void displayFrequencySweeps() {
 }
 /*End Display Modes*************************************************************************/
 /***************************************************************************************/
+
+
+void  calculateMotorOutput() {
+  if (goalAngle > 360) goalAngle -= 360;
+  if (goalAngle < 0) goalAngle += 360;
+
+  if (calculateMotorOutputTimer >= deltaTms) {
+    calculateMotorOutputTimer = 0;
+
+    difference = goalAngle - ekfYawAngle; //using Kalman Filter output for input
+    if (difference <= -180)  difference += 360;
+    if (difference >= 180)  difference -= 360;
+
+    if (abs(turnSetting) < 15) { //Suspend while changing course to reduce integral wind-up. The turnSetting is a feed-forward variablet
+      differenceList[diffIndex] = int32_t(difference * 1000);
+      diffIndex += 1;
+      if (diffIndex >= memorySize) diffIndex = 0;
+    }
+
+    int32_t sum = 0;
+    for (int j = 0; j < memorySize; j++) {
+      sum += differenceList[j];
+    }
+
+    integral = double(sum) / 1000.0 * deltaT;
+
+    if (gps.speed.isUpdated())
+    {
+      speedDifference = goalSpeed - ekfSpeed;
+
+      differenceSpeedList[diffIndex] = int32_t(speedDifference * 1000);
+      diffSpeedIndex += 1;
+      if (diffSpeedIndex >= memorySize) diffSpeedIndex = 0;
+
+      int32_t speedSum = 0;
+      for (int j = 0; j < memorySize; j++) speedSum += differenceSpeedList[j];
+
+      double integralSpeed = double(speedSum) / 1000.0 * deltaT;
+
+      speedAdjust = constrain(int(speedK * speedDifference + speedI * integralSpeed),-50,50);
+      //Change the motor ouptut slowly to avoid pulsing motion.
+      if (speedAdjust - previousSpeedAdjust > changeLimit){
+        speedAdjust = previousSpeedAdjust + changeLimit;
+      }
+      else if (previousSpeedAdjust - speedAdjust > changeLimit){
+        speedAdjust = previousSpeedAdjust - changeLimit;
+      }
+      previousSpeedAdjust = speedAdjust;
+    }
+
+
+    angleSetting = constrain(int(angleK * difference + angleI * integral + angleD * ekfYawRate),-100,100);
+    //Change the motor ouptut slowly to avoid pulsing motion.
+    if (angleSetting - previousAngleSetting > changeLimit){
+      angleSetting = previousAngleSetting + changeLimit;
+    }
+    else if (previousAngleSetting - angleSetting > changeLimit){ // Switch order of operations for negative numbers
+      angleSetting = previousAngleSetting - changeLimit;
+    }
+    previousAngleSetting = angleSetting;
+    
+    int tempRightMotor = int((speedSetting + speedAdjust - turnSetting - angleSetting + stopMotorValue) * biasSetting);
+    int tempLeftMotor  = int( speedSetting + speedAdjust + turnSetting + angleSetting + stopMotorValue);
+    
+    if (tempRightMotor - previousRightMotor > motorChange){
+      tempRightMotor = previousRightMotor + motorChange;
+    }
+    else if (previousRightMotor - tempRightMotor > motorChange){
+      tempRightMotor = previousRightMotor - motorChange;
+    }
+    
+    if (tempLeftMotor - previousLeftMotor > motorChange){
+      tempLeftMotor = previousLeftMotor + motorChange;
+    }
+    else if (previousLeftMotor - tempLeftMotor > motorChange){
+      tempLeftMotor = previousLeftMotor - motorChange;
+    }
+    
+    rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
+    leftMotor  = constrain(tempLeftMotor,  maxRevMotorValue, maxFwdMotorValue);
+
+    previousRightMotor = rightMotor;
+    previousLeftMotor = leftMotor;
+    
+
+    //print
+    debugData();
+  }
+
+}
+

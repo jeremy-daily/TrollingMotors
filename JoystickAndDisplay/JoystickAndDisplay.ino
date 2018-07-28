@@ -54,12 +54,9 @@ char str21[9];
 char str22[9];
 
 uint32_t currentMillis;
-<<<<<<< HEAD
 uint32_t changeModeMillis;
-
+uint8_t numModes;
 uint8_t mode;
-=======
->>>>>>> parent of 5449230... Fixed turn rate
 
 void setup() {
 
@@ -107,15 +104,12 @@ void setup() {
   greenDebouncer.interval(15); // interval in ms
 
   dispSerial.begin(9600);
-  delay(500);
-
-  // dispSerial.write(0x7C);
-  // dispSerial.write(157); //Full Brightness
-
   dispSerial.write(254);
   dispSerial.write(1); //clear screen
-
-
+  
+  // dispSerial.write(0x7C);
+  // dispSerial.write(157); //Full Brightness
+   
   dispSerial.write(254); 
   dispSerial.write(0x0C); //Turn cursor off
 
@@ -151,6 +145,8 @@ void loop() {
   redButtonState = redDebouncer.read();
   greenButtonState = greenDebouncer.read();
 
+
+  /* 
   dispSerial.write(254); //escape character
   dispSerial.write(206); //Move Cursor to the bottom last point on a 16x2 display  
 
@@ -168,7 +164,7 @@ void loop() {
   else if (!downButtonState) dispSerial.print("D");
   else if (!upButtonState) dispSerial.print("U");
   else dispSerial.print(" ");
-
+  */
    
   readCANbus();
   
@@ -190,7 +186,7 @@ void loop() {
 /***********************************************************************************************/
 /***********************************************************************************************/
 void sendJoyStick(){
-  if (currentMillis - lastJoyTime >= 50){
+  if (currentMillis - lastJoyTime >= 25){
     lastJoyTime = currentMillis;
     bitWrite(joyMessage[0],0,!upButtonState);
     bitWrite(joyMessage[0],1,!downButtonState);
@@ -212,8 +208,6 @@ void sendJoyStick(){
 /***********************************************************************************************/
 
 void readCANbus(){
-<<<<<<< HEAD
-<<<<<<< HEAD
   CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
   byte i = 0;
   if (rxId == 0x210){
@@ -222,90 +216,41 @@ void readCANbus(){
     lastRXTime = currentMillis;
     writeOnce=false;
   }
-  else if (rxId == 0x211 && update211){ //Display Characters on first quarter of screen
-=======
-  if(CAN0.checkReceive()){
-    CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
-    
-   
-    uint8_t i = 0; 
-    if (rxId == 0x211){ //Display Characters on first quarter of screen
->>>>>>> parent of 5449230... Fixed turn rate
-=======
-  if(CAN0.checkReceive()){
-    CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
-
-    if (rxId == 0x210){
-      numModes=rxBuf[0];
-      //mode = rxBuf[1];
-      lastRXTime = currentMillis;
-    }
-   
-    uint8_t i = 0; 
-    if (rxId == 0x211){ //Display Characters on first quarter of screen
->>>>>>> parent of 20eefee... Improved CAN Display
-      dispSerial.write(254); //escape character
-      dispSerial.write(128); //Move Cursor
-      for (i=0;i<8;i++) str11[i] = constrain(rxBuf[i],32,126);
-      dispSerial.print(str11);
-      
-      lastRXTime = currentMillis;
-    }
-    else if (rxId == 0x212){
-      dispSerial.write(254); //escape character
-      dispSerial.write(136); //Move 
-      for (i=0;i<8;i++) str12[i] = constrain(rxBuf[i],32,126);
-      dispSerial.print(str12);
-<<<<<<< HEAD
-<<<<<<< HEAD
+  else if (rxId == 0x211){ //Display Characters on first quarter of screen
+    dispSerial.write(254); //escape character
+    dispSerial.write(128); //Move Cursor
+    for (i=0;i<8;i++) str11[i] = constrain(rxBuf[i],32,126);
+    dispSerial.print(str11);   
   }
-  else if (rxId == 0x221 && update221){
+  else if (rxId == 0x212){
+    dispSerial.write(254); //escape character
+    dispSerial.write(136); //Move 
+    for (i=0;i<8;i++) str12[i] = constrain(rxBuf[i],32,126);
+    dispSerial.print(str12);
+  }
+  else if (rxId == 0x221){
     dispSerial.write(254); //escape character
     dispSerial.write(192); //Move 
     for (i=0;i<8;i++) str21[i] = constrain(rxBuf[i],32,126);
     dispSerial.print(str21);
   }
-  else if (rxId == 0x222 && update222){
+  else if (rxId == 0x222){
     dispSerial.write(254); //escape character
     dispSerial.write(200); //Move 
     for (i = 0; i < 8 ; i++) str22[i] = constrain(rxBuf[i],32,126);
     dispSerial.print(str22);
-=======
-=======
-      lastRXTime = currentMillis;
->>>>>>> parent of 20eefee... Improved CAN Display
+  }
+  else if (rxId == 0x221){
+    dispSerial.write(254); //escape character
+    dispSerial.write(192); //Move 
+    for (i=0;i<8;i++) str21[i] = constrain(rxBuf[i],32,126);
+    dispSerial.print(str21);
     }
-    else if (rxId == 0x221){
-      dispSerial.write(254); //escape character
-      dispSerial.write(192); //Move 
-      for (i=0;i<8;i++) str21[i] = constrain(rxBuf[i],32,126);
-      dispSerial.print(str21);
-<<<<<<< HEAD
-     
-=======
-      lastRXTime = currentMillis;
->>>>>>> parent of 20eefee... Improved CAN Display
-    }
-    else if (rxId == 0x222){
-      dispSerial.write(254); //escape character
-      dispSerial.write(200); //Move 
-      for (i = 0; i < 8 ; i++) str22[i] = constrain(rxBuf[i],32,126);
-      dispSerial.print(str22);
-      Serial.print(str11);
-      Serial.print(" ");
-      Serial.print(str12);
-      Serial.print(" ");
-      Serial.print(str21);      
-      Serial.print(" ");
-      Serial.println(str22);
-<<<<<<< HEAD
-    }
->>>>>>> parent of 5449230... Fixed turn rate
-=======
-      writeOnce=true;
-      lastRXTime = currentMillis;
-    }
->>>>>>> parent of 20eefee... Improved CAN Display
+  else if (rxId == 0x222){
+    dispSerial.write(254); //escape character
+    dispSerial.write(200); //Move 
+    for (i = 0; i < 8 ; i++) str22[i] = constrain(rxBuf[i],32,126);
+    dispSerial.print(str22);
   }
 }
 
