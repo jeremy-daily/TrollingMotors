@@ -1,6 +1,12 @@
 # TrollingMotors
 A project that runs 2 trolling motors on a boat with multiple microcontrollers on a CAN bus.
 
+## Servos
+D23 is the left servo.
+
+D16 is the right motor.
+
+
 ##CAN Message
 This section describes the interpretationa adn value for each of the CAN messages on the trolling motor system. All nodes are running at 500k CAN with 11-bit IDs.
 ### Mode Message

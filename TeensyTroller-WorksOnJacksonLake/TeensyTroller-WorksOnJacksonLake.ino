@@ -9,6 +9,7 @@
 #include <TinyGPS++.h> // Used to read the data from the GPS.
 #include <FlexCAN.h> // The CAN library for the Teensy used to communicate with the Joystick
 #include "SPI.h" //Serial Peripherial Interface
+#include "ILI9341_t3.h" // The library for the TFT display for the Teensy 3.2
 #include  <i2c_t3.h> // the I2C library that replaces Wire.h for the Teensy 3.2
 #include <SFE_HMC6343.h> //Sparkfun's library for the digital compass
 #include <Servo.h> // Used to send pulses to the motor controller
@@ -16,7 +17,6 @@
 
 float turnRate = 0.75; //degrees per second
 int turnTime = 100;
-int changeLimit = 2;
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
@@ -24,7 +24,7 @@ double compassOffset = -10.8;// True - measured, so measured + offset = true
 
 //PID Gain Constants. Tune these for best results.
 //Field Test result worked with angleK = 4, angleI = .3, angleD = 25. Determined on 20 July 2016 on Skiatook Lake
-//Field Test result worked with angleK = 8, angleI = .3, angleD = 30. Determined on 25 July 2018 on Jackson Lake
+//Field Test result worked with angleK = 4, angleI = .3, angleD = 25. Determined on 20 July 2016 on Skiatook Lake
 double angleK = 8;
 double angleI = .3;
 double angleD = 30;
@@ -164,9 +164,9 @@ const int maxRevMotorValue = 8;
 const int maxFwdMotorValue = 208;
 
 elapsedMillis upperLeftTimer = 0;
-elapsedMillis upperRightTimer = 50;
-elapsedMillis lowerLeftTimer = 100;
-elapsedMillis lowerRightTimer = 150;
+elapsedMillis upperRightTimer = 20;
+elapsedMillis lowerLeftTimer = 40;
+elapsedMillis lowerRightTimer = 60;
 
 elapsedMillis calculateMotorOutputTimer; // this is interrupt based
 elapsedMillis broadcastCANtimer; //set up intervals
@@ -210,9 +210,8 @@ boolean greenButtonState = LOW;
 boolean redButtonState = LOW;
 
 
-// Jackson Lake
-double fixPointLat = 43.84825516;
-double fixPointLon = -110.6231537;
+double fixPointLat = 48.85826;
+double fixPointLon = 2.294516;
 double distanceToFixPoint = 0;
 double courseToFixPoint = 0;
 double integral = 0;
@@ -230,9 +229,35 @@ double tempHeading = 0;
 
 int speedSetting;
 int angleSetting;
-int previousAngleSetting;
+
+int leftMotor = 92;
+int rightMotor = 92;
+
+
+//Initialize the GPS
+TinyGPSPlus gps;
+
+
+// Setup the TFT display.
+#define TFT_DC 20
+#define TFT_CS 21
+// initialize the display
+//ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC);
+
+SFE_HMC6343 compass; // Declare the sensor object
+
+Servo rightServo;  // create servo object to control a servo
+Servo leftServo;  // create servo object to control a servo
+
+//Set up CAN messaging
+FlexCAN CANbus(500000);
+static CAN_message_t txmsg, rxmsg;
+uint32_t CANTXcount = 0;
+uint32_t CANRXcount = 0;
+uint32_t ID = 0;
+char message[17] = "                "; //initialize with spaces
+
 int speedAdjust;
-int previousSpeedAdjust;
 
 double compassHeading = 0.0;
 
@@ -241,35 +266,14 @@ boolean leftTurn = false;
 
 float yawAngleRaw = 0;
 
-uint8_t leftMotor = 92;
-uint8_t rightMotor = 92;
-uint8_t previousLeftMotor = 92;
-uint8_t previousRightMotor = 92;
-uint8_t motorChange = 1;
-
-//Initialize the GPS
-TinyGPSPlus gps;
-
-SFE_HMC6343 compass; // Declare the sensor object
-
-Servo rightServo;  // create servo object to control a servo
-Servo leftServo;  // create servo object to control a servo
-
-//Set up CAN messaging
-//FlexCAN CANbus(500000);
-static CAN_message_t txmsg, rxmsg;
-uint32_t CANTXcount = 0;
-uint32_t CANRXcount = 0;
-uint32_t ID = 0;
-char message[17] = "                "; //initialize with spaces
-
 #include "BNO055.h"
+
 
 
 /*****************************************************************************************/
 /* DISPLAY HELPER FUNCTIONS */
 void displayUpperLeft8(char message[9]) {
-  if (upperLeftTimer > 200){
+  if (upperLeftTimer > 100){
     upperLeftTimer = 0;
     txmsg.id = 0x211; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
@@ -278,7 +282,7 @@ void displayUpperLeft8(char message[9]) {
 }
 
 void displayUpperRight8(char message[9]) {
-  if (upperRightTimer > 200){
+  if (upperRightTimer > 100){
     upperRightTimer = 0;
     txmsg.id = 0x212; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
@@ -287,7 +291,7 @@ void displayUpperRight8(char message[9]) {
 }
 
 void displayLowerLeft8(char message[9]) {
-  if (lowerLeftTimer > 200){
+  if (lowerLeftTimer > 100){
     lowerLeftTimer = 0;
     txmsg.id = 0x221; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
@@ -296,12 +300,15 @@ void displayLowerLeft8(char message[9]) {
 }
 
 void displayLowerRight8(char message[9]) {
-  if (lowerRightTimer > 200){
+  if (lowerRightTimer > 100){
     lowerRightTimer = 0;
     txmsg.id = 0x222; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
     Can0.write(txmsg);
   }
+  txmsg.id = 0x222; //sent to the lower right
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
 }
 
 void displayTopLine(char _topLine[17]) {
@@ -324,6 +331,8 @@ void displayBottomLine(char _botLine[17]) {
 
 
 void setup() {
+  turnRate = turnRate * turnTime/1000;
+  delay(200);
   Wire.begin();
   Serial.println("Welcome to the Teensy Troller. We will get setup first.");
 
@@ -443,26 +452,48 @@ void setup() {
   Serial.println("Done.");
 
   Serial.println("Sending CAN messages... ");
-  sprintf(topLine, "Fishing is great", compassOffset, int(gps.satellites.value()));
-  displayTopLine(topLine);
-  delay(20);
-  sprintf(botLine, "today. Have fun!", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
-  displayBottomLine(botLine);
+  strncpy(message, "Fishing ", 8);
+  txmsg.id = 0x211; //Send to the upper left
+  txmsg.len = 8;
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+  delay(50);
+
+  strncpy(message, "is great", 8);
+  txmsg.id = 0x212; //sent to the upper right
+  txmsg.len = 8;
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+  delay(50);
+
+  strncpy(message, "today. H", 8);
+  txmsg.id = 0x221; //sent to the lower left
+  txmsg.len = 8;
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+  delay(50);
+
+  strncpy(message, "ave fun.", 8);
+  txmsg.id = 0x222; //sent to the lower right
+  txmsg.len = 8;
+  for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
+  CANbus.write(txmsg);
+  delay(50);
   Serial.println("Done.");
+
+  //tft.print("CAN msgs sent");
+
+  delay(100);
   Serial.println("Loading Compass Offsets from EEPROM... ");
   EEPROM.get(compassOffsetAddress, compassOffset);
   EEPROM.get(CANcompassOffsetAddress, CANcompassOffset);
   Serial.println("Done.");
 
-  //Initialize the Kalman Filter
-  compassHeading = getCompassHeading();
+
+//  compassHeading = getCompassHeading();
   ekf.setX(0, compassHeading);
   deltaT = double(deltaTms) / 1000.0;
- 
-  upperLeftTimer = 0;
-  upperRightTimer = 50;
-  lowerLeftTimer = 100;
-  lowerRightTimer = 150;
+
 }
 
 void  calculateMotorOutput() {
@@ -503,50 +534,17 @@ void  calculateMotorOutput() {
       double integralSpeed = double(speedSum) / 1000.0 * deltaT;
 
       speedAdjust = constrain(int(speedK * speedDifference + speedI * integralSpeed),-50,50);
-      //Change the motor ouptut slowly to avoid pulsing motion.
-      if (speedAdjust - previousSpeedAdjust > changeLimit){
-        speedAdjust = previousSpeedAdjust + changeLimit;
-      }
-      else if (previousSpeedAdjust - speedAdjust > changeLimit){
-        speedAdjust = previousSpeedAdjust - changeLimit;
-      }
-      previousSpeedAdjust = speedAdjust;
-    }
 
+    }
 
     angleSetting = constrain(int(angleK * difference + angleI * integral + angleD * ekfYawRate),-100,100);
-    //Change the motor ouptut slowly to avoid pulsing motion.
-    if (angleSetting - previousAngleSetting > changeLimit){
-      angleSetting = previousAngleSetting + changeLimit;
-    }
-    else if (previousAngleSetting - angleSetting > changeLimit){ // Switch order of operations for negative numbers
-      angleSetting = previousAngleSetting - changeLimit;
-    }
-    previousAngleSetting = angleSetting;
-    
+
+  
     int tempRightMotor = int((speedSetting + speedAdjust - turnSetting - angleSetting + stopMotorValue) * biasSetting);
-    int tempLeftMotor  = int( speedSetting + speedAdjust + turnSetting + angleSetting + stopMotorValue);
-    
-    if (tempRightMotor - previousRightMotor > motorChange){
-      tempRightMotor = previousRightMotor + motorChange;
-    }
-    else if (previousRightMotor - tempRightMotor > motorChange){
-      tempRightMotor = previousRightMotor - motorChange;
-    }
-    
-    if (tempLeftMotor - previousLeftMotor > motorChange){
-      tempLeftMotor = previousLeftMotor + motorChange;
-    }
-    else if (previousLeftMotor - tempLeftMotor > motorChange){
-      tempLeftMotor = previousLeftMotor - motorChange;
-    }
-    
+    int tempLeftMotor  = int( speedSetting + speedAdjust + turnSetting + angleSetting + stopMotorValue) ;
     rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
     leftMotor  = constrain(tempLeftMotor,  maxRevMotorValue, maxFwdMotorValue);
 
-    previousRightMotor = rightMotor;
-    previousLeftMotor = leftMotor;
-    
 
     //print
     debugData();
@@ -556,44 +554,44 @@ void  calculateMotorOutput() {
 
 
 void sendCANmessages() {
-  if (broadcastCANtimer >= 200) {
-    broadcastCANtimer = 0;
-
-    //GPS Messages
-    if (gps.speed.isUpdated() ) {
-      txmsg.id = 0x43e;
-      txmsg.len = 8;
-
-      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
-      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
-      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
-      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
-      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
-      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
-      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
-      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
-
-      Can0.write(txmsg);
-      CANTXcount++;
-    }
-  }
+//  if (broadcastCANtimer >= 200) {
+//    broadcastCANtimer = 0;
+//
+//    //GPS Messages
+//    if (gps.speed.isUpdated() ) {
+//      txmsg.id = 0x43e;
+//      txmsg.len = 8;
+//
+//      txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
+//      txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
+//      txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
+//      txmsg.buf[3] = byte( (gps.speed.value() & 0x000000FF) >>  0);
+//      txmsg.buf[4] = byte( (gps.course.value() & 0xFF000000) >> 24);
+//      txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
+//      txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
+//      txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
+//
+//      CANbus.write(txmsg);
+//      CANTXcount++;
+//    }
+//  }
 
   if (broadcastCANmodeTimer >= deltaTms) {
     broadcastCANmodeTimer = 0;
     txmsg.id = 0x210;
     txmsg.len = 8;
 
-    txmsg.buf[0] = numberOfModes; 
+    txmsg.buf[0] = numberOfModes;
     txmsg.buf[1] = mode;
-    txmsg.buf[2] = byte( (int(goalAngle*10) & 0x0000FF00) >> 8);
-    txmsg.buf[3] = byte( (int(goalAngle*10) & 0x000000FF));
-    txmsg.buf[4] = byte( (int(ekfYawAngle*10) & 0x0000FF00) >> 8);
-    txmsg.buf[5] = byte( (int(ekfYawAngle*10) & 0x000000FF));
-    txmsg.buf[6] = leftMotor;
-    txmsg.buf[7] = rightMotor;
+    txmsg.buf[2] = 0xFF;
+    txmsg.buf[3] = 0xFF;
+    txmsg.buf[4] = 0xFF;
+    txmsg.buf[5] = 0xFF;
+    txmsg.buf[6] = 0xFF;
+    txmsg.buf[7] = 0xFF;
 
-    Can0.write(txmsg);
-    CANTXcount++;
+    CANbus.write(txmsg);
+
   }
 }
 
@@ -884,7 +882,7 @@ void loop() {
         speedSettingTimer = 0;
         if (upButtonState && !pushButtonState) goalSpeed += 0.1; //mph
         if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
-        goalSpeed = constrain(goalSpeed, 0, 6);
+        goalSpeed = constrain(goalSpeed, 0, 4);
         speedSetting = feedforwardSpeed * goalSpeed; //feed forward
       }
       if (courseSettingTimer > courseSetTime) {
@@ -918,12 +916,12 @@ void loop() {
         turnTimer = 0;
       
         if (rightTurn ) { //right turn slowly for 180 degrees at 1 deg/sec
-          goalAngle += turnRate*turnTime/1000 ;
+          goalAngle += turnRate ;
           turnSetting = feedforward; //feed forward
           
         }
         else if (leftTurn) { 
-          goalAngle -= turnRate*turnTime/1000 ;
+          goalAngle -= turnRate ;
           turnSetting = -feedforward; //feed forward
         }
       }
@@ -1089,7 +1087,7 @@ void loop() {
     }
   }
   //##############################################################################################
-  //# Mode 3: Sharp Turns = Full Throttle
+  //# Mode 3: Sharp Turns
   //##############################################################################################
   //##############################################################################################
   //##############################################################################################
@@ -1103,12 +1101,12 @@ void loop() {
     if (mode5started) {
       debugData();
       if (upButtonState) {
-        rightMotor = int( 0.9 * maxFwdMotorValue * biasSetting);
-        leftMotor = int(0.9 * maxFwdMotorValue);
+        rightMotor = int( 0.8 * maxFwdMotorValue * biasSetting);
+        leftMotor = int(0.8 * maxFwdMotorValue);
       }
       else if (downButtonState) {
-        rightMotor = int(1.1 * maxRevMotorValue) * biasSetting;
-        leftMotor = int(1.1 * maxRevMotorValue);
+        rightMotor = int(0.8 * maxRevMotorValue) * biasSetting;
+        leftMotor = int(0.8 * maxRevMotorValue);
       }
       else if (rightButtonState) {
         rightMotor = maxRevMotorValue;
@@ -1244,7 +1242,9 @@ void resetOutputs() {
 
   compass.exitStandby();
 
+  //tft.fillScreen(ILI9341_GREEN);
   delay(50);
+  //displayTemplate();
   currentMode = mode;
 
   //reset the integrator
@@ -1254,9 +1254,6 @@ void resetOutputs() {
   angleSetting = 0;
   rightMotor = stopMotorValue;
   leftMotor  = stopMotorValue;
-  previousAngleSetting = 0;
-  leftTurn = false;
-  rightTurn = false;
 }
 
 
@@ -1351,3 +1348,10 @@ void displayFrequencySweeps() {
 }
 /*End Display Modes*************************************************************************/
 /***************************************************************************************/
+
+
+
+
+
+
+

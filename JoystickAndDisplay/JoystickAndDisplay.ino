@@ -1,22 +1,15 @@
-//#include <AltSoftSerial.h>
-
 #include <SoftwareSerial.h>
 #include <SPI.h>
 #include <mcp_can.h>
 #include <mcp_can_dfs.h>
+#include <Bounce2.h>
 
-//AltSoftSerial dispSerial;
-
-//Set up the display
 SoftwareSerial dispSerial(8,9);
 
 // enable the CAN interface with the MCP2515 chip
 MCP_CAN CAN0(10); 
 
 byte joyMessage[8];
-byte mode;
-byte currentMode;
-byte numberOfModes = 7;
 
 //CAN interface messages (Borrowed from the example).
 long unsigned int rxId;
@@ -24,71 +17,60 @@ unsigned char len = 0;
 unsigned char rxBuf[8];
 
 //Define the button input pins
-const int rightButton = 14;
-const int downButton = 15;
-const int pushButton = 17;
-const int leftButton = 5;
-const int upButton = 3;
+#define rightButton 14
+#define downButton  15
+#define pushButton  17
+#define leftButton  5
+#define upButton    3
+#define redButton   6
+#define greenButton 7
 
-boolean rightButtonReading = LOW;
-boolean leftButtonReading = LOW;
-boolean downButtonReading = LOW;
-boolean pushButtonReading = LOW;
-boolean upButtonReading = LOW;
+Bounce rightDebouncer = Bounce(); 
+Bounce downDebouncer  = Bounce(); 
+Bounce pushDebouncer  = Bounce(); 
+Bounce leftDebouncer  = Bounce(); 
+Bounce upDebouncer    = Bounce(); 
+Bounce redDebouncer   = Bounce(); 
+Bounce greenDebouncer = Bounce(); 
 
-boolean rightButtonState = LOW;
-boolean leftButtonState = LOW;
-boolean downButtonState = LOW;
-boolean pushButtonState = LOW;
-boolean upButtonState = LOW;
+bool rightButtonState;
+bool downButtonState;
+bool pushButtonState;
+bool leftButtonState;
+bool upButtonState;
+bool redButtonState;
+bool greenButtonState;
 
-boolean doubleClick = false;
-
-boolean lastRightButtonState = LOW;
-boolean lastLeftButtonState = LOW;
-boolean lastDownButtonState = LOW;
-boolean lastPushButtonState = LOW;
-boolean lastUpButtonState = LOW;
-
-//Set up various timers
-unsigned long currentMillis = 0;
-unsigned long lastRightButtonDebounceTime = 0;
-unsigned long lastLeftButtonDebounceTime = 0;
-unsigned long lastDownButtonDebounceTime = 0;
-unsigned long lastPushButtonDebounceTime = 0;
-unsigned long lastUpButtonDebounceTime = 0;
-unsigned long doubleClickTimer = 0;
-unsigned long tripleClickTimer = 0;
-unsigned long lastSentTime = 0;
 unsigned long lastJoyTime = 0;
 unsigned long lastRXTime = 0;
-unsigned long loopCount = 0;
-unsigned long delayItime = 0;
-unsigned long lastOffDisplayTime = 0;
 
-// setup user interface times in milliseconds
-const long debounceDelay = 20;
-const long doubleClickThreshold = 350;
-const long tripleClickThreshold = 350;
+boolean writeOnce   = false;
+boolean doubleClick = false;
 
-boolean writeOnce=false;
+
+char str11[9];
+char str12[9];
+char str21[9];
+char str22[9];
+
+uint32_t currentMillis;
+<<<<<<< HEAD
+uint32_t changeModeMillis;
+
+uint8_t mode;
+=======
+>>>>>>> parent of 5449230... Fixed turn rate
 
 void setup() {
 
-  pinMode(2, INPUT_PULLUP); //Monitor for CAN messages
-  //pinMode(3, INPUT_PULLUP); //Monitor for CAN messages
-
-  //attachInterrupt(digitalPinToInterrupt(2), readCANbus, FALLING);
-  //attachInterrupt(digitalPinToInterrupt(3), readCANbus, FALLING);
-  
- // Serial.begin(115200);
- // Serial.println("It's time to go fishing with the Dailys!!");
-  delay(400);
+  Serial.begin(115200);
+  Serial.println("It's time to go fishing with the Dailys!!");
   //start CAN communications
-  //Serial.println("Setting up CAN0...");
-  //if(CAN0.begin(CAN_500KBPS) == CAN_OK) //Serial.println("CAN0 init ok!!");
-  //else Serial.println("CAN0 init fail!!");
-  CAN0.begin(CAN_500KBPS);
+  Serial.println("Setting up CAN0...");
+  if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) Serial.println("MCP2515 Initialized Successfully!");
+  else Serial.println("Error Initializing MCP2515...");
+
+  CAN0.setMode(MCP_NORMAL);   // Change to normal mode to allow messages to be transmitted
 
   CAN0.init_Mask(0,1,0x7FF);
   CAN0.init_Mask(2,1,0x7FF);
@@ -100,11 +82,29 @@ void setup() {
   CAN0.init_Filt(4,1,0x210 ^ 0x7FF);
 
   // make the pushbutton's pin an input:
-  pinMode(rightButton, INPUT);
-  pinMode(leftButton, INPUT);
-  pinMode(downButton, INPUT);
-  pinMode(pushButton, INPUT);
-  pinMode(upButton, INPUT);
+  pinMode(rightButton, INPUT_PULLUP);
+  pinMode(leftButton,  INPUT_PULLUP);
+  pinMode(downButton,  INPUT_PULLUP);
+  pinMode(pushButton,  INPUT_PULLUP);
+  pinMode(upButton,    INPUT_PULLUP);
+  pinMode(redButton,   INPUT_PULLUP);
+  pinMode(greenButton, INPUT_PULLUP);
+
+  rightDebouncer.attach(rightButton);
+  leftDebouncer.attach(leftButton);
+  downDebouncer.attach(downButton);
+  pushDebouncer.attach(pushButton);
+  upDebouncer.attach(upButton);
+  redDebouncer.attach(redButton);
+  greenDebouncer.attach(greenButton);
+  
+  rightDebouncer.interval(15);
+  leftDebouncer.interval(15);
+  downDebouncer.interval(15);
+  pushDebouncer.interval(15);
+  upDebouncer.interval(15);
+  redDebouncer.interval(15);
+  greenDebouncer.interval(15); // interval in ms
 
   dispSerial.begin(9600);
   delay(500);
@@ -126,26 +126,53 @@ void setup() {
   dispSerial.print("Fun for everyone");
   delay(2000);
 
+  dispSerial.write(254);
+  dispSerial.write(1); //clear screen
 
 }
 
 // the loop routine runs over and over again forever:
 void loop() {
+  currentMillis = millis();
+
+  rightDebouncer.update();
+  leftDebouncer.update();
+  downDebouncer.update();
+  pushDebouncer.update();
+  upDebouncer.update();
+  redDebouncer.update();
+  greenDebouncer.update();
+
+  rightButtonState = rightDebouncer.read();
+  leftButtonState = leftDebouncer.read();
+  downButtonState = downDebouncer.read();
+  pushButtonState = pushDebouncer.read();
+  upButtonState = upDebouncer.read();
+  redButtonState = redDebouncer.read();
+  greenButtonState = greenDebouncer.read();
+
+  dispSerial.write(254); //escape character
+  dispSerial.write(206); //Move Cursor to the bottom last point on a 16x2 display  
+
+  //Calculate a new symbol for button combinations
+  //Space is 0x20 or 32
+  char buttonSymbol = 32 + 1*!pushButtonState + 2*!greenButtonState + 4*!redButtonState;
+  dispSerial.print(buttonSymbol);
+  
+  //Automatically move to the next slot and print Joystick positions.
+  
+  //dispSerial.write(254); //escape character
+  //dispSerial.write(207); //Move Cursor to the bottom last point on a 16x2 display  
+  if (!rightButtonState) dispSerial.print("R");
+  else if (!leftButtonState) dispSerial.print("L");
+  else if (!downButtonState) dispSerial.print("D");
+  else if (!upButtonState) dispSerial.print("U");
+  else dispSerial.print(" ");
+
+   
   readCANbus();
   
-
-  //Button Debouncing*********************************************************************************    
-  // read the input pin:
-  rightButtonReading = digitalRead(rightButton);
-  leftButtonReading  = digitalRead(leftButton);
-  downButtonReading  = digitalRead(downButton);
-  pushButtonReading  = digitalRead(pushButton);
-  upButtonReading    = digitalRead(upButton);
-  // print out the state of the button:
-  currentMillis = millis();
-  
   if (currentMillis - lastRXTime > 1200){
-    mode = 0; // Reset the mode if the Mode CAN message doesn't show up.
     if (!writeOnce){
       dispSerial.write(254);
       dispSerial.write(1); //clear screen
@@ -155,67 +182,7 @@ void loop() {
       writeOnce=true;
     }
   }
-  
-  if (rightButtonReading != lastRightButtonState) lastRightButtonDebounceTime = currentMillis;
-  if (leftButtonReading  != lastLeftButtonState)  lastLeftButtonDebounceTime  = currentMillis;
-  if (downButtonReading  != lastDownButtonState)  lastDownButtonDebounceTime  = currentMillis;
-  if (upButtonReading    != lastUpButtonState)    lastUpButtonDebounceTime    = currentMillis;
-  if (pushButtonReading  != lastPushButtonState)  lastPushButtonDebounceTime  = currentMillis;  
-
-  if (currentMillis - lastRightButtonDebounceTime > debounceDelay){
-    if (rightButtonReading != rightButtonState){
-      rightButtonState = rightButtonReading;
-    }
-  }
-  if (currentMillis - lastLeftButtonDebounceTime > debounceDelay){
-    if (leftButtonReading != leftButtonState){
-      leftButtonState = leftButtonReading;
-    }
-  }
-  if (currentMillis - lastDownButtonDebounceTime > debounceDelay){
-    if (downButtonReading != downButtonState){
-      downButtonState = downButtonReading;
-    }
-  }
-  if (currentMillis - lastUpButtonDebounceTime > debounceDelay){
-    if (upButtonReading != upButtonState){
-      upButtonState = upButtonReading;
-    }
-  }
-  if (currentMillis - lastPushButtonDebounceTime > debounceDelay){
-    if (pushButtonReading !=  pushButtonState){
-      pushButtonState = pushButtonReading;
-      if (pushButtonState == HIGH){
-        //Serial.println("Push");
-//        dispSerial.write(254); //escape character
-//        dispSerial.write(206); //Move Cursor to the bottom last point on a 16x2 display
-//        dispSerial.print("B");
-        if (currentMillis - doubleClickTimer < doubleClickThreshold){
-          doubleClick = true;
-          mode += 1;
-          if (mode >= numberOfModes) mode = 0;
-          Serial.println(mode);
-        }
-        else {
-          doubleClick = false;
-          doubleClickTimer = currentMillis;
-        }
-      }
-      else {
-
-//        dispSerial.write(254); //escape character
-//        dispSerial.write(206); //Move Cursor to the bottom last point on a 16x2 display
-//        dispSerial.print(" ");
-      }
-    }
-  }
-  lastRightButtonState = rightButtonReading;
-  lastLeftButtonState  = leftButtonReading;
-  lastDownButtonState  = downButtonReading;
-  lastUpButtonState    = upButtonReading;
-  lastPushButtonState  = pushButtonReading;
  
-  
   sendJoyStick();
 }
 
@@ -223,20 +190,18 @@ void loop() {
 /***********************************************************************************************/
 /***********************************************************************************************/
 void sendJoyStick(){
-  currentMillis=millis();
   if (currentMillis - lastJoyTime >= 50){
     lastJoyTime = currentMillis;
-    joyMessage[0] = byte(mode);
-    bitWrite(joyMessage[1],0,upButtonState);
-    bitWrite(joyMessage[1],1,downButtonState);
-    bitWrite(joyMessage[1],2,leftButtonState);
-    bitWrite(joyMessage[1],3,rightButtonState);
-    bitWrite(joyMessage[1],4,pushButtonState);
-    bitWrite(joyMessage[1],5,doubleClick);
-    bitWrite(joyMessage[1],6,0);
-    bitWrite(joyMessage[1],7,0);
+    bitWrite(joyMessage[0],0,!upButtonState);
+    bitWrite(joyMessage[0],1,!downButtonState);
+    bitWrite(joyMessage[0],2,!leftButtonState);
+    bitWrite(joyMessage[0],3,!rightButtonState);
+    bitWrite(joyMessage[0],4,!pushButtonState);
+    bitWrite(joyMessage[0],5,doubleClick);
+    bitWrite(joyMessage[0],6,!redButtonState);
+    bitWrite(joyMessage[0],7,!greenButtonState);
     
-    CAN0.sendMsgBuf(0x700, 0, 2, joyMessage );
+    CAN0.sendMsgBuf(0x700, 0, 1, joyMessage );
   }
 }
 /***********************************************************************************************/
@@ -247,62 +212,100 @@ void sendJoyStick(){
 /***********************************************************************************************/
 
 void readCANbus(){
+<<<<<<< HEAD
+<<<<<<< HEAD
+  CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
+  byte i = 0;
+  if (rxId == 0x210){
+    numModes=rxBuf[0];
+    //mode = rxBuf[1];
+    lastRXTime = currentMillis;
+    writeOnce=false;
+  }
+  else if (rxId == 0x211 && update211){ //Display Characters on first quarter of screen
+=======
   if(CAN0.checkReceive()){
-    CAN0.readMsgBuf(&len, rxBuf);              // Read data: len = data length, buf = data byte(s)
-    rxId = CAN0.getCanId();   
-   
-  
-    if (rxId == 0x210){ //Mode Message
-      numberOfModes = rxBuf[0];
-      lastRXTime = currentMillis;
-      writeOnce=false;
-      
-    }
- // if (!dispSerial.overflow()){ 
-//    // Get message ID
-//    Serial.print(rxId, HEX);
-//    for (int i = 0;i<len;i++){
-//      
-//      char hexChars[5];
-//      sprintf(hexChars,", %02X",rxBuf[i]);
-//      Serial.print(hexChars);
-//    }
-//    Serial.println();
+    CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
     
+   
+    uint8_t i = 0; 
     if (rxId == 0x211){ //Display Characters on first quarter of screen
+>>>>>>> parent of 5449230... Fixed turn rate
+=======
+  if(CAN0.checkReceive()){
+    CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
+
+    if (rxId == 0x210){
+      numModes=rxBuf[0];
+      //mode = rxBuf[1];
+      lastRXTime = currentMillis;
+    }
+   
+    uint8_t i = 0; 
+    if (rxId == 0x211){ //Display Characters on first quarter of screen
+>>>>>>> parent of 20eefee... Improved CAN Display
       dispSerial.write(254); //escape character
       dispSerial.write(128); //Move Cursor
-      char str11[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      for (i=0;i<8;i++) str11[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str11);
-      //Serial.println(str11);
+      
+      lastRXTime = currentMillis;
     }
     else if (rxId == 0x212){
       dispSerial.write(254); //escape character
       dispSerial.write(136); //Move 
-      char str12[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      for (i=0;i<8;i++) str12[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str12);
-      //Serial.println(str12);
-        
+<<<<<<< HEAD
+<<<<<<< HEAD
+  }
+  else if (rxId == 0x221 && update221){
+    dispSerial.write(254); //escape character
+    dispSerial.write(192); //Move 
+    for (i=0;i<8;i++) str21[i] = constrain(rxBuf[i],32,126);
+    dispSerial.print(str21);
+  }
+  else if (rxId == 0x222 && update222){
+    dispSerial.write(254); //escape character
+    dispSerial.write(200); //Move 
+    for (i = 0; i < 8 ; i++) str22[i] = constrain(rxBuf[i],32,126);
+    dispSerial.print(str22);
+=======
+=======
+      lastRXTime = currentMillis;
+>>>>>>> parent of 20eefee... Improved CAN Display
     }
     else if (rxId == 0x221){
       dispSerial.write(254); //escape character
       dispSerial.write(192); //Move 
-      char str21[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      for (i=0;i<8;i++) str21[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str21);
-      //Serial.println(str21);
+<<<<<<< HEAD
+     
+=======
+      lastRXTime = currentMillis;
+>>>>>>> parent of 20eefee... Improved CAN Display
     }
     else if (rxId == 0x222){
       dispSerial.write(254); //escape character
       dispSerial.write(200); //Move 
-      char str22[9] = {rxBuf[0],rxBuf[1],rxBuf[2],rxBuf[3],rxBuf[4],rxBuf[5],rxBuf[6],rxBuf[7],'\0'};
+      for (i = 0; i < 8 ; i++) str22[i] = constrain(rxBuf[i],32,126);
       dispSerial.print(str22);
-      //Serial.println(str22);
+      Serial.print(str11);
+      Serial.print(" ");
+      Serial.print(str12);
+      Serial.print(" ");
+      Serial.print(str21);      
+      Serial.print(" ");
+      Serial.println(str22);
+<<<<<<< HEAD
     }
-    else {
-     rxId = 0;
+>>>>>>> parent of 5449230... Fixed turn rate
+=======
+      writeOnce=true;
+      lastRXTime = currentMillis;
     }
-    //digitalWrite(2,HIGH);
+>>>>>>> parent of 20eefee... Improved CAN Display
   }
- // }
 }
 
