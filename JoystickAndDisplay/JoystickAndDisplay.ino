@@ -22,7 +22,7 @@ unsigned char rxBuf[8];
 #define pushButton  17
 #define leftButton  5
 #define upButton    3
-#define redButton   6
+#define redButton   8
 #define greenButton 7
 
 Bounce rightDebouncer = Bounce(); 
@@ -186,7 +186,7 @@ void loop() {
 /***********************************************************************************************/
 /***********************************************************************************************/
 void sendJoyStick(){
-  if (currentMillis - lastJoyTime >= 25){
+  if (currentMillis - lastJoyTime >= 50){
     lastJoyTime = currentMillis;
     bitWrite(joyMessage[0],0,!upButtonState);
     bitWrite(joyMessage[0],1,!downButtonState);
@@ -198,6 +198,7 @@ void sendJoyStick(){
     bitWrite(joyMessage[0],7,!greenButtonState);
     
     CAN0.sendMsgBuf(0x700, 0, 1, joyMessage );
+    Serial.println(joyMessage[0],BIN);
   }
 }
 /***********************************************************************************************/

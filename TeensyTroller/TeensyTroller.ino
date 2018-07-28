@@ -14,7 +14,7 @@
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
 
-float turnRate = 0.75; //degrees per second
+float turnRate = 0.85; //degrees per second
 int turnTime = 100;
 int changeLimit = 2;
 
@@ -35,7 +35,7 @@ double speedI = .3;
 double speedD = 0;
 
 int feedforward = 10;
-int feedforwardSpeed = 22;
+int feedforwardSpeed = 29;
 
 //Set up the Kalman filter to smooth the data from the Compass and Rate Gyro.
 // These must be defined before including TinyEKF.h
@@ -521,26 +521,31 @@ void readCANandSerialMessages( ) {
     if (ID == 0x700) {
       CANaliveTimer = 0;
       buttonByte = rxmsg.buf[0];
+      //Serial.println(buttonByte,BIN);
       upButtonState =    bitRead(buttonByte, 0);
       downButtonState =  bitRead(buttonByte, 1);
       leftButtonState =  bitRead(buttonByte, 2);
       rightButtonState = bitRead(buttonByte, 3);
       pushButtonState =  bitRead(buttonByte, 4);
-      greenButtonState = bitRead(buttonByte, 6);
-      redButtonState =   bitRead(buttonByte, 7);
-      if (redButtonState) mode = 0;
+      redButtonState =   bitRead(buttonByte, 6);
+      greenButtonState = bitRead(buttonByte, 7);
       
-      if (modeChangeTimer > 500){
-        modeChangeTimer = 0;
-        if (greenButtonState && upButtonState) {
+      if (greenButtonState){
+        if (modeChangeTimer > 500 && upButtonState) {
+          modeChangeTimer = 0;
           mode +=1;
           if (mode > numberOfModes) mode = 0;
         }
-        else if (greenButtonState && downButtonState) {
+        else if (modeChangeTimer > 300 && downButtonState) {
           mode -=1;
           if (mode < 0) mode = numberOfModes;
         }
+        //Serial.print("Changing Mode: ");
+        //Serial.println(mode);
       }
+      
+      if (redButtonState) mode = 0;  
+   
     }
     if (ID == 0x43c) {
       CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
@@ -808,7 +813,7 @@ void loop() {
         speedSettingTimer = 0;
         if (upButtonState && !pushButtonState) goalSpeed += 0.1; //mph
         if (downButtonState && !pushButtonState) goalSpeed -= 0.1;
-        goalSpeed = constrain(goalSpeed, 0, 6);
+        goalSpeed = constrain(goalSpeed, 0, 4);
         speedSetting = feedforwardSpeed * goalSpeed; //feed forward
       }
       if (courseSettingTimer > courseSetTime) {
@@ -841,7 +846,7 @@ void loop() {
       if (turnTimer >= turnTime){
         turnTimer = 0;
       
-        if (rightTurn ) { //right turn slowly for 180 degrees at 1 deg/sec
+        if (rightTurn ) { //right turn slowly 
           goalAngle += turnRate*turnTime/1000 ;
           turnSetting = feedforward; //feed forward
           
@@ -904,7 +909,7 @@ void loop() {
         Serial.println(fixPointLon, 10);
       }
 
-      goalSpeed = 2.0;
+      goalSpeed = 2.5;
       goalAngle = ekfYawAngle;
       memset(differenceList, 0, sizeof(differenceList));
       fig8phase = 0;
