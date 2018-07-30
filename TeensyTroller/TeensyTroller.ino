@@ -16,7 +16,8 @@
 
 float turnRate = 0.85; //degrees per second
 int turnTime = 100;
-int changeLimit = 2;
+uint8_t changeLimit = 2;
+uint8_t motorChange = 1;
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
@@ -34,8 +35,8 @@ double speedK = .1;
 double speedI = .3;
 double speedD = 0;
 
-int feedforward = 10;
-int feedforwardSpeed = 29;
+uint8_t feedforward = 10;
+uint8_t feedforwardSpeed = 29;
 
 //Set up the Kalman filter to smooth the data from the Compass and Rate Gyro.
 // These must be defined before including TinyEKF.h
@@ -47,6 +48,8 @@ int feedforwardSpeed = 29;
 
 //declare this here so it can be used in the Fuser model.
 double deltaT = 0.05;
+const uint32_t deltaTms = 50; //milliseconds for calculations and output
+const uint32_t modeDisplayPeriod = 100;
 
 class Fuser : public TinyEKF {
 
@@ -129,15 +132,10 @@ const int memorySize = 2400;
 int32_t differenceList[2400];
 int32_t differenceSpeedList[2400];
 
-double accelX = 0;
-
-const uint32_t deltaTms = 50; //milliseconds for calculations and output
-const uint32_t modeDisplayPeriod = 100;
-
-double yawOffset = 0;
 double CANcompassOffset = 0;
 boolean needsRealigned  = true;
 boolean needsToPrint = true;
+boolean computerAbsent = true;
 
 double CANheading;
 double CANcompassHeading;
@@ -180,7 +178,6 @@ elapsedMillis speedSettingTimer;
 elapsedMillis broadcastCANmodeTimer;
 elapsedMillis courseSettingTimer;
 elapsedMillis gyroReadingTimer;
-
 elapsedMillis fig8timer;
 elapsedMillis turnTimer;
 elapsedMillis turnUpdateTimer;
@@ -224,7 +221,6 @@ int diffSpeedIndex = 0;
 double difference = 0;
 double speedDifference = 0;
 double goalAngle = 0;
-double turnGoal = 0;
 double goalSpeed = 0;
 double turnSetting = 0;
 double tempHeading = 0;
@@ -246,7 +242,7 @@ uint8_t leftMotor = 92;
 uint8_t rightMotor = 92;
 uint8_t previousLeftMotor = 92;
 uint8_t previousRightMotor = 92;
-uint8_t motorChange = 1;
+
 
 //Initialize the GPS
 TinyGPSPlus gps;
@@ -468,6 +464,9 @@ void setup() {
 
 
 void sendCANmessages() {
+  
+  
+  
   if (broadcastCANtimer >= 200) {
     broadcastCANtimer = 0;
 
@@ -475,7 +474,6 @@ void sendCANmessages() {
     if (gps.speed.isUpdated() ) {
       txmsg.id = 0x43e;
       txmsg.len = 8;
-
       txmsg.buf[0] = byte( (gps.speed.value() & 0xFF000000) >> 24);
       txmsg.buf[1] = byte( (gps.speed.value() & 0x00FF0000) >> 16);
       txmsg.buf[2] = byte( (gps.speed.value() & 0x0000FF00) >>  8);
@@ -484,26 +482,116 @@ void sendCANmessages() {
       txmsg.buf[5] = byte( (gps.course.value() & 0x00FF0000) >> 16);
       txmsg.buf[6] = byte( (gps.course.value() & 0x0000FF00) >>  8);
       txmsg.buf[7] = byte( (gps.course.value() & 0x000000FF) >>  0);
-
       Can0.write(txmsg);
       CANTXcount++;
     }
+
+    //Variable Values
+    txmsg.id = 0x610;
+    txmsg.len = 8;
+    txmsg.buf[0] = turnRate;
+    txmsg.buf[1] = changeLimit;
+    txmsg.buf[2] = motorChange;
+    txmsg.buf[3] = feedforward;
+    txmsg.buf[4] = feedforwardSpeed;
+    txmsg.buf[5] = byte( biasSetting*100 );
+    uint16_t tempOffset = (compassOffset + 180)*100;
+    txmsg.buf[6] = byte( (tempOffset & 0x0000FF00) >>  8);
+    txmsg.buf[7] = byte( (tempOffset & 0x000000FF) >>  0);
+    Can0.write(txmsg);
+    CANTXcount++;
+
+    txmsg.id = 0x611;
+    txmsg.len = 8;
+    txmsg.buf[0] = byte(angleK*10);
+    txmsg.buf[1] = byte(angleI*100);
+    txmsg.buf[2] = byte(angleD);
+    txmsg.buf[3] = byte(speedK*10);
+    txmsg.buf[4] = byte(speedI*100);
+    txmsg.buf[5] = byte(speedD);
+    uint16_t tempDiff = (difference*200 +32768);
+    txmsg.buf[6] = byte( (tempDiff & 0x0000FF00) >>  8);
+    txmsg.buf[7] = byte( (tempDiff & 0x000000FF) >>  0);
+    Can0.write(txmsg);
+    CANTXcount++;
+
+    txmsg.id = 0x612;
+    txmsg.len = 8;
+    uint32_t tempLat = (gps.location.lat()*10000000 + 2000000000);
+    txmsg.buf[0] = byte( (tempLat & 0xFF000000) >> 24);
+    txmsg.buf[1] = byte( (tempLat & 0x00FF0000) >> 16);
+    txmsg.buf[2] = byte( (tempLat & 0x0000FF00) >>  8);
+    txmsg.buf[3] = byte( (tempLat & 0x000000FF) >>  0);
+    uint32_t tempLong = (gps.location.lng()*10000000 + 2000000000);
+    txmsg.buf[4] = byte( (tempLong & 0xFF000000) >> 24);
+    txmsg.buf[5] = byte( (tempLong & 0x00FF0000) >> 16);
+    txmsg.buf[6] = byte( (tempLong & 0x0000FF00) >>  8);
+    txmsg.buf[7] = byte( (tempLong & 0x000000FF) >>  0);
+    Can0.write(txmsg);
+    CANTXcount++;
+
+    txmsg.id = 0x613;
+    txmsg.len = 8;
+    tempLat = (fixPointLat*10000000 + 2000000000);
+    txmsg.buf[0] = byte( (tempLat & 0xFF000000) >> 24);
+    txmsg.buf[1] = byte( (tempLat & 0x00FF0000) >> 16);
+    txmsg.buf[2] = byte( (tempLat & 0x0000FF00) >>  8);
+    txmsg.buf[3] = byte( (tempLat & 0x000000FF) >>  0); 
+    tempLong = (fixPointLon*10000000 + 2000000000);
+    txmsg.buf[4] = byte( (tempLong & 0xFF000000) >> 24);
+    txmsg.buf[5] = byte( (tempLong & 0x00FF0000) >> 16);
+    txmsg.buf[6] = byte( (tempLong & 0x0000FF00) >>  8);
+    txmsg.buf[7] = byte( (tempLong & 0x000000FF) >>  0);
+    if (mode == 2){ //Figure 8 Mode
+      Can0.write(txmsg);
+      CANTXcount++;
+    }
+
+    txmsg.id = 0x614;
+    txmsg.len = 8; 
+    txmsg.buf[0] = byte( (uint16_t(distanceToFixPoint) & 0x0000FF00) >>  8);
+    txmsg.buf[1] = byte( (uint16_t(distanceToFixPoint) & 0x000000FF) >>  0);
+    txmsg.buf[2] = byte( (uint16_t(courseToFixPoint*10) & 0x0000FF00) >>  8);
+    txmsg.buf[3] = byte( (uint16_t(courseToFixPoint*10) & 0x000000FF) >>  0);
+    uint16_t tempIntegral = uint16_t(integral*10);
+    txmsg.buf[4] = byte( (tempIntegral & 0x0000FF00) >>  8);
+    txmsg.buf[5] = byte( (tempIntegral & 0x000000FF) >>  0);
+    uint16_t tempSpeedDiff = uint16_t(speedDifference*100);
+    txmsg.buf[6] = byte( (tempSpeedDiff & 0x0000FF00) >>  8);
+    txmsg.buf[7] = byte( (tempSpeedDiff & 0x000000FF) >>  0);
+    Can0.write(txmsg);
+    CANTXcount++;
   }
 
   if (broadcastCANmodeTimer >= deltaTms) {
     broadcastCANmodeTimer = 0;
     txmsg.id = 0x210;
     txmsg.len = 8;
-
     txmsg.buf[0] = numberOfModes; 
     txmsg.buf[1] = mode;
-    txmsg.buf[2] = byte( (int(goalAngle*10) & 0x0000FF00) >> 8);
-    txmsg.buf[3] = byte( (int(goalAngle*10) & 0x000000FF));
-    txmsg.buf[4] = byte( (int(ekfYawAngle*10) & 0x0000FF00) >> 8);
-    txmsg.buf[5] = byte( (int(ekfYawAngle*10) & 0x000000FF));
+    uint16_t tempGoalAngle = goalAngle*10 + 3600;
+    txmsg.buf[2] = (tempGoalAngle & 0xFF00) >> 8;
+    txmsg.buf[3] = (tempGoalAngle & 0x00FF);
+    uint16_t tempekfYawAngle = ekfYawAngle*10 + 3600;
+    txmsg.buf[4] = (tempekfYawAngle & 0xFF00) >> 8;
+    txmsg.buf[5] = (tempekfYawAngle & 0x00FF);
     txmsg.buf[6] = leftMotor;
     txmsg.buf[7] = rightMotor;
+    Can0.write(txmsg);
+    CANTXcount++;
 
+    txmsg.id = 0x209;
+    txmsg.len = 8;
+    uint16_t tempcompassHeading = compassHeading*10 + 3600;
+    txmsg.buf[0] = byte( (tempcompassHeading & 0x0000FF00) >> 8);
+    txmsg.buf[1] = byte( (tempcompassHeading & 0x000000FF));
+    uint16_t tempCANcompassHeading = compassHeading*10 + 3600;
+    txmsg.buf[2] = byte( (tempCANcompassHeading & 0x0000FF00) >> 8);
+    txmsg.buf[3] = byte( (tempCANcompassHeading & 0x000000FF));
+    txmsg.buf[4] = byte( (int(ekfYawRate*1000) & 0x0000FF00) >> 8);
+    txmsg.buf[5] = byte( (int(ekfYawRate*1000) & 0x000000FF));
+    txmsg.buf[6] = byte( (uint16_t(gps.course.deg()*10) & 0x0000FF00) >> 8);
+    txmsg.buf[7] = byte( (uint16_t(gps.course.deg()*10) & 0x000000FF));
     Can0.write(txmsg);
     CANTXcount++;
   }
@@ -512,16 +600,28 @@ void sendCANmessages() {
 
 
 void readCANandSerialMessages( ) {
-  
+  if (waitingForCANtimer > 250) computerAbsent = true;
   uint8_t buttonByte;
   
   Can0.read(rxmsg);
-    waitingForCANtimer = 0; //reset the can message timeout
-    ID = rxmsg.id;
-    if (ID == 0x700) {
-      CANaliveTimer = 0;
-      buttonByte = rxmsg.buf[0];
-      //Serial.println(buttonByte,BIN);
+  ID = rxmsg.id;
+  if (ID == 0x701) {
+    CANaliveTimer = 0;
+    waitingForCANtimer = 0;
+    computerAbsent = false; // This flag blocks the joystick if present.
+    buttonByte = rxmsg.buf[0];
+    upButtonState =    bitRead(buttonByte, 0);
+    downButtonState =  bitRead(buttonByte, 1);
+    leftButtonState =  bitRead(buttonByte, 2);
+    rightButtonState = bitRead(buttonByte, 3);
+    pushButtonState =  bitRead(buttonByte, 4);
+    redButtonState =   bitRead(buttonByte, 6);
+    greenButtonState = bitRead(buttonByte, 7);
+  }
+  else if (ID == 0x700) {
+    CANaliveTimer = 0;
+    buttonByte = rxmsg.buf[0];
+    if (computerAbsent){
       upButtonState =    bitRead(buttonByte, 0);
       downButtonState =  bitRead(buttonByte, 1);
       leftButtonState =  bitRead(buttonByte, 2);
@@ -529,44 +629,65 @@ void readCANandSerialMessages( ) {
       pushButtonState =  bitRead(buttonByte, 4);
       redButtonState =   bitRead(buttonByte, 6);
       greenButtonState = bitRead(buttonByte, 7);
-      
-      if (greenButtonState){
-        if (modeChangeTimer > 500 && upButtonState) {
-          modeChangeTimer = 0;
-          mode +=1;
-          if (mode > numberOfModes) mode = 0;
-        }
-        else if (modeChangeTimer > 300 && downButtonState) {
-          mode -=1;
-          if (mode < 0) mode = numberOfModes;
-        }
-        //Serial.print("Changing Mode: ");
-        //Serial.println(mode);
-      }
-      
-      if (redButtonState) mode = 0;  
-   
     }
-    if (ID == 0x43c) {
-      CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+  }
+  else if (ID == 0x43c) {
+    CANheading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+  }
+  else if (ID == 0x43d) {
+    CANheading = (rxmsg.buf[6] * 256 + rxmsg.buf[7]) / 10.;
+  }
+  else if (ID == 0x43e) {
+    headingReading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
+    gpsSpeed = (rxmsg.buf[2] * 256 + rxmsg.buf[3]) * 1.15078; // + 0.5;
+    gpsAngle = (rxmsg.buf[4] * 256 + rxmsg.buf[5]);
+    gpsSats  = rxmsg.buf[6];
+    gpsFix   = rxmsg.buf[7];
+  }
+  else if (ID == 0x441) {
+    headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
+    dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
+  }
+  else if (ID == 0x600){
+    turnRate = rxmsg.buf[0];
+    changeLimit = rxmsg.buf[1];
+    motorChange = rxmsg.buf[2];
+    feedforward = rxmsg.buf[3];
+    feedforwardSpeed = rxmsg.buf[4];
+    biasSetting = rxmsg.buf[5]/100;
+    compassOffset = (rxmsg.buf[6] * 256 + rxmsg.buf[7])/100 - 180;
+  }
+  else if (ID == 0x601){
+    angleK = rxmsg.buf[0]/10;
+    angleI = rxmsg.buf[1]/100;
+    angleD = txmsg.buf[2];
+    speedK = rxmsg.buf[3]/10;
+    speedI = rxmsg.buf[4]/100;
+    speedD = txmsg.buf[5];
+  }
+  else if (ID == 0x602){
+    mode = rxmsg.buf[0];
+    goalAngle = (rxmsg.buf[1] * 256 + rxmsg.buf[2])/10;
+//    if (rxmsg.buf[3] < 210){
+//      leftMotor = rxmsg.buf[3];
+//    }
+//    if (rxmsg.buf[4] < 210){
+//      rightMotor = rxmsg.buf[4];
+//    }
+  }
+
+  if (greenButtonState){
+    if (modeChangeTimer > 500 && upButtonState) {
+      modeChangeTimer = 0;
+      mode +=1;
+      if (mode > numberOfModes) mode = 0;
     }
-    else if (ID == 0x43d) {
-      CANheading = (rxmsg.buf[6] * 256 + rxmsg.buf[7]) / 10.;
+    else if (modeChangeTimer > 300 && downButtonState) {
+      mode -=1;
+      if (mode < 0) mode = numberOfModes;
     }
-    else if (ID == 0x43e) {
-      headingReading = (rxmsg.buf[0] * 256 + rxmsg.buf[1]) / 10.;
-      gpsSpeed = (rxmsg.buf[2] * 256 + rxmsg.buf[3]) * 1.15078; // + 0.5;
-      gpsAngle = (rxmsg.buf[4] * 256 + rxmsg.buf[5]);
-      gpsSats  = rxmsg.buf[6];
-      gpsFix   = rxmsg.buf[7];
-    }
-    else if (ID == 0x441) {
-      headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
-      dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
-    }
-  
-  
-  //Serial.println(buttonByte,BIN);
+  }
+  if (redButtonState) mode = 0;  
 }
 
     
@@ -760,8 +881,6 @@ void getMeasurements() {
 
     yawRate = BNOgetYawRate();
     compassHeading = getCompassHeading();
-
-    // accelX = BNOgetAccelX();
 
     // Send these measurements to the EKF
     double z[M] = {compassHeading, yawRate, gps.speed.mph(), gpsSpeed};
