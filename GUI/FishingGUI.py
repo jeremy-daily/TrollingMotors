@@ -256,7 +256,10 @@ class FishingGUI(QMainWindow):
         parameter_box = QFrame()
         parameter_box_layout = QFormLayout()
         parameter_box.setLayout(parameter_box_layout)
-        self.GPScourseLabel = QLCDNumber()
+        
+        self.GPScourseLabel = QLabel() #QLCDNumber()
+        #self.GPScourseLabel.setSegmentStyle(QLCDNumber.Flat)
+        self.GPScourseLabel.setFont(display_font)
         parameter_box_layout.addRow("GPS Course:", self.GPScourseLabel)
         
         parameter_box_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -404,8 +407,8 @@ class FishingGUI(QMainWindow):
         
         # We want to connect to multiple clients with different protocols.
         self.client_id = self.RP1210.get_client_id("CAN", deviceID, "{}".format(speed))
-        self.rx_queue = queue.Queue(10000)
-        self.extra_queue = queue.Queue(10000)
+        self.rx_queue = queue.Queue(1000)
+        self.extra_queue = queue.Queue(1000)
         if self.client_id is None:
             print("RP1210 is not available.")
             return
@@ -573,15 +576,16 @@ class FishingGUI(QMainWindow):
 
     def read_rp1210(self):
         start_time = time.time()
-        while self.rx_queue.qsize():
+        for i in range(self.rx_queue.qsize()):
             QCoreApplication.processEvents()
-            if (time.time() - start_time + .8*self.update_rate) > self.update_rate: #give some time to process events
-                logger.debug("Can't keep up with messages.")
-                return
+            # if (time.time() - start_time + .8*self.update_rate) > self.update_rate: #give some time to process events
+            #     print("Can't keep up with messages.")
+            #     return
+
             (current_time, vda_timestamp, can_id, dlc, can_data) = self.rx_queue.get()
             #print("0x{:03X}".format(can_id))
             if can_id == 0x211:
-                print(can_data)
+                #print(can_data)
                 self.top_line_text = can_data.decode() + self.top_line_text[8:]
                 self.topDisplayLine.setText(self.top_line_text)
             elif can_id == 0x212:
@@ -609,8 +613,7 @@ class FishingGUI(QMainWindow):
                 self.heading_graph.add_data(self.ekfYawData, 
                         marker = 'o', 
                         label = "Yaw Angle")
-                self.heading_graph.plot()
-
+                
                 self.motorData.append((current_time, goalAngle))
                 self.heading_graph.add_data(self.goalAngleData, 
                         marker = 'o-', 
@@ -619,9 +622,9 @@ class FishingGUI(QMainWindow):
             elif can_id == 0x209:
                 compassHeading = (struct.unpack(">H",can_data[0:2])[0] - 3600)/10 
                 CANcompassHeading = (struct.unpack(">H",can_data[2:4])[0] - 3600)/10
-                ekfYawRate = struct.unpack(">H",can_data[4:6])[0]/1000
+                ekfYawRate = struct.unpack(">h",can_data[4:6])[0]/1000
                 gpsCourse = struct.unpack(">H",can_data[6:8])[0]/10
-              
+                self.GPScourseLabel.setText("{: 3d}".format(int(gpsCourse)))
                 self.GPSheadingData.append((current_time,gpsCourse))
                 self.heading_graph.add_data(self.GPSheadingData, 
                         marker = 'x', 
@@ -645,6 +648,7 @@ class FishingGUI(QMainWindow):
                   headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
                   dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
                 
+        self.heading_graph.plot()
 
 if __name__ == '__main__':
     app = QCoreApplication.instance()
