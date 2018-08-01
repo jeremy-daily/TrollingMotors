@@ -47,7 +47,7 @@ class RP1210ReadMessageThread(threading.Thread):
         while self.runSignal: #Look into threading.events
             
             #self.duration = time.time() - self.start_time
-            time.sleep(0.001)
+            time.sleep(0.010)
             return_value = self.RP1210_ReadMessage(c_short(self.nClientID),
                                                    byref(ucTxRxBuffer),
                                                    c_short(2000),

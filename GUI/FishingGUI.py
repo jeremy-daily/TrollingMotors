@@ -579,10 +579,11 @@ class FishingGUI(QMainWindow):
         #for i in range(self.rx_queue.qsize()):
         #for i in range(100):
         while self.rx_queue.qsize():
+            print(self.rx_queue.qsize())
             QCoreApplication.processEvents()
-            # if (time.time() - start_time + .8*self.update_rate) > self.update_rate: #give some time to process events
-            #     print("Can't keep up with messages.")
-            #     return
+            if (time.time() - start_time + .8*self.update_rate) > self.update_rate: #give some time to process events
+                print("Can't keep up with messages.")
+                return
 
             (current_time, vda_timestamp, can_id, dlc, can_data) = self.rx_queue.get()
             #print("0x{:03X}".format(can_id))
