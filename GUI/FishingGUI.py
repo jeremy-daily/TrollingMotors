@@ -576,7 +576,9 @@ class FishingGUI(QMainWindow):
 
     def read_rp1210(self):
         start_time = time.time()
-        for i in range(self.rx_queue.qsize()):
+        #for i in range(self.rx_queue.qsize()):
+        #for i in range(100):
+        while self.rx_queue.qsize():
             QCoreApplication.processEvents()
             # if (time.time() - start_time + .8*self.update_rate) > self.update_rate: #give some time to process events
             #     print("Can't keep up with messages.")

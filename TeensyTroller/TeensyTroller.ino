@@ -16,7 +16,7 @@
 
 float turnRate = 0.85; //degrees per second
 int turnTime = 100;
-uint8_t changeLimit = 2;
+uint8_t changeLimit = 1;
 uint8_t motorChange = 1;
 
 #define compassOffsetAddress 0
@@ -162,9 +162,9 @@ const int maxRevMotorValue = 8;
 const int maxFwdMotorValue = 208;
 
 elapsedMillis upperLeftTimer = 0;
-elapsedMillis upperRightTimer = 50;
-elapsedMillis lowerLeftTimer = 100;
-elapsedMillis lowerRightTimer = 150;
+elapsedMillis upperRightTimer = 19;
+elapsedMillis lowerLeftTimer = 41;
+elapsedMillis lowerRightTimer = 63;
 
 elapsedMillis calculateMotorOutputTimer; // this is interrupt based
 elapsedMillis broadcastCANtimer; //set up intervals
@@ -183,8 +183,8 @@ elapsedMillis turnTimer;
 elapsedMillis turnUpdateTimer;
 elapsedMillis resetCompassTimer;
 
-const int speedSetTime = 150; //set how quickly the speed changes.
-const int courseSetTime = 150; //set how quickly the Course inputs changes.
+const int speedSetTime = 100; //set how quickly the speed changes.
+const int courseSetTime = 100; //set how quickly the Course inputs changes.
 
 boolean mode1started = false;
 boolean mode2started = false;

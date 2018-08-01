@@ -45,7 +45,9 @@ class RP1210ReadMessageThread(threading.Thread):
         # display a valid connection upon start.
         logger.debug("Read Message Client ID: {}".format(self.nClientID))
         while self.runSignal: #Look into threading.events
-            self.duration = time.time() - self.start_time
+            
+            #self.duration = time.time() - self.start_time
+            time.sleep(0.001)
             return_value = self.RP1210_ReadMessage(c_short(self.nClientID),
                                                    byref(ucTxRxBuffer),
                                                    c_short(2000),
