@@ -159,7 +159,7 @@ double distK = 0.2;
 
 const int stopMotorValue = 92;
 const int maxRevMotorValue = 8;
-const int maxFwdMotorValue = 208;
+const int maxFwdMotorValue = 254;
 
 elapsedMillis upperLeftTimer = 0;
 elapsedMillis upperRightTimer = 19;
@@ -399,6 +399,8 @@ void setup() {
 
   Serial.print("Starting Servos... ");
 
+//  rightServo.attach(16,1000,3000);  // attaches the servo on pin 16 to the servo object
+//  leftServo.attach(23,1000,3000);  // attaches the servo on pin 23 to the servo object
   rightServo.attach(16);  // attaches the servo on pin 16 to the servo object
   leftServo.attach(23);  // attaches the servo on pin 23 to the servo object
   Serial.println("Done.");
@@ -1148,28 +1150,34 @@ void loop() {
     if (upButtonState && pushButtonState) mode5started = true;
     displayFullSpeed();
     debugData();
-    if (mode5started) {
+    if (mode5started && turnTimer >= 10) {
+      turnTimer = 0;
       debugData();
       if (upButtonState) {
-        rightMotor = int( 0.9 * maxFwdMotorValue * biasSetting);
-        leftMotor = int(0.9 * maxFwdMotorValue);
+        rightMotor+=1;
+        leftMotor+=1;
       }
       else if (downButtonState) {
-        rightMotor = int(1.1 * maxRevMotorValue) * biasSetting;
-        leftMotor = int(1.1 * maxRevMotorValue);
+        rightMotor -= 1;
+        leftMotor -= 1;
+        
       }
       else if (rightButtonState) {
-        rightMotor = maxRevMotorValue;
-        leftMotor = maxFwdMotorValue;
+        rightMotor -= 1;
+        leftMotor += 1;
       }
       else if (leftButtonState) {
-        rightMotor = maxFwdMotorValue;
-        leftMotor = maxRevMotorValue;
+        rightMotor += 1;
+        leftMotor -= 1;
       }
       else
-      {
-        rightMotor = stopMotorValue;
-        leftMotor = stopMotorValue;
+      { 
+        if (rightMotor < stopMotorValue) rightMotor+=1;
+        else if (rightMotor > stopMotorValue) rightMotor-=1;
+        if (leftMotor < stopMotorValue) leftMotor+=1;
+        else if (leftMotor > stopMotorValue) leftMotor-=1;
+        
+
       }
 
     }
@@ -1273,6 +1281,8 @@ void loop() {
 
   /////////////////////////////////////////////////////
   //always send the updates to the servos
+  rightMotor = constrain(rightMotor, maxRevMotorValue, maxFwdMotorValue);
+  leftMotor  = constrain(leftMotor,  maxRevMotorValue, maxFwdMotorValue);
   rightServo.write(rightMotor);
   leftServo.write(leftMotor);
 
@@ -1370,7 +1380,7 @@ void displayFullSpeed() {
     modeDisplayTimer = 0;
     sprintf(topLine, "%i Full Spd:%4.1f", mode, ekfSpeed); //motorInput is the value sent to the motors.
     displayTopLine(topLine);
-    if (mode5started) sprintf(botLine, "H:%3i YawRt:%4.1f", int(ekfYawAngle), ekfYawRate);
+    if (mode5started) sprintf(botLine, "L: %3i R: %3i   ", leftMotor, rightMotor);
     else strncpy(botLine, "Butn+Up to Start", 16);
     displayBottomLine(botLine);
   }
@@ -1479,7 +1489,7 @@ void  calculateMotorOutput() {
     
     rightMotor = constrain(tempRightMotor, maxRevMotorValue, maxFwdMotorValue);
     leftMotor  = constrain(tempLeftMotor,  maxRevMotorValue, maxFwdMotorValue);
-
+    
     previousRightMotor = rightMotor;
     previousLeftMotor = leftMotor;
     
