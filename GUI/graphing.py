@@ -80,9 +80,9 @@ class GraphDialog(QDialog):
             self.ax.axis([xmin, xmax, self.ymin, self.ymax])
         except:
             pass
-        xfmt = md.DateFormatter('%Y-%m-%d %H:%M:%S')
-        self.ax.xaxis.set_major_formatter(xfmt)
-        self.figure.autofmt_xdate()
+        #xfmt = md.DateFormatter('%Y-%m-%d %H:%M:%S')
+        #self.ax.xaxis.set_major_formatter(xfmt)
+        #self.figure.autofmt_xdate()
         self.ax.set_xlabel(self.x_label)
         self.ax.set_ylabel(self.y_label)
         self.ax.set_title(self.title)
@@ -109,8 +109,8 @@ class GraphDialog(QDialog):
     
     def add_data(self, data, marker='*-', label=""):
         x, y = zip(*data) #unpacks a list of tuples
-        dates = [dt.datetime.fromtimestamp(ts) for ts in x]
-        self.data[label] = {"X": dates, "Y": y, "Marker": marker}
+        #dates = [dt.datetime.fromtimestamp(ts) for ts in x]
+        self.data[label] = {"X": x, "Y": y, "Marker": marker}
     
     def add_xy_data(self, data, marker='*-', label=""):
         x, y = zip(*data) #unpacks a list of tuples

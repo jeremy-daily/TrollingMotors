@@ -52,8 +52,11 @@ from RP1210Functions import *
 from RP1210Select import *
 from graphing import *
 
+
+ucTxRxBuffer = (c_char * 2000)()
+
 import logging
-import logging.config
+logger = logging.getLogger(__name__)
 
 class FishingGUI(QMainWindow):
     def __init__(self):
@@ -68,10 +71,11 @@ class FishingGUI(QMainWindow):
         self.bot_line_text = "0123456789ABCDEF"
         self.goalAngleData = []
         self.ekfYawData = []
-        self.motorData = []
+        self.leftMotorData = []
+        self.rightMotorData = []
         self.GPSheadingData = []
         self.compassData = []
-        self.update_rate = 250
+        self.update_rate = 5
         self.gpsSpeed = 0
         self.gpsCourse = 0
         self.network_connected = {"CAN": False}
@@ -81,12 +85,10 @@ class FishingGUI(QMainWindow):
         self.selectRP1210(automatic=True)
         self.ok_to_send = False
 
-        read_timer = QTimer(self)
-        read_timer.timeout.connect(self.read_rp1210)
-        read_timer.start(self.update_rate) #milliseconds
+        
         
         connection_timer = QTimer(self)
-        connection_timer.timeout.connect(self.check_connections)
+        connection_timer.timeout.connect(self.plot_graphs)     
         connection_timer.start(500) #milliseconds
         
         send_timer = QTimer(self)
@@ -101,7 +103,7 @@ class FishingGUI(QMainWindow):
         
         # Build common menu options
         menubar = self.menuBar()
-        
+        self.startTime = time.time()
         # RP1210 Menu Items
         self.rp1210_menu = menubar.addMenu('&RP1210')
        
@@ -349,14 +351,15 @@ class FishingGUI(QMainWindow):
         self.RP1210_toolbar.addAction(rp1210_get_hardware_status_ex)
         self.RP1210_toolbar.addAction(disconnect_rp1210)
 
+        read_timer = QTimer(self)
+        read_timer.timeout.connect(self.read_rp1210)
+        read_timer.start(self.update_rate) #milliseconds
+
+    def plot_graphs(self):     
+        self.heading_graph.plot()
     
     def clear_voltage_graph(self):
-        self.J1939.clear_voltage_history()
-        self.J1587.clear_voltage_history()
-
-    def show_graphs(self):
-        self.voltage_graph.show()
-
+        pass
     
     def confirm_quit(self):
         self.close()
@@ -367,15 +370,15 @@ class FishingGUI(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.Yes)
         if result == QMessageBox.Yes:
-            logger.debug("Quitting.")
+            print("Quitting.")
             event.accept()
         else:
             event.ignore()
 
     def selectRP1210(self, automatic=False):
-        logger.debug("Select RP1210 function called.")
+        print("Select RP1210 function called.")
         selection = SelectRP1210(self.title)
-        logger.debug(selection.dll_name)
+        print(selection.dll_name)
         if not automatic:
             selection.show_dialog()
         elif not selection.dll_name:
@@ -388,16 +391,6 @@ class FishingGUI(QMainWindow):
 
         if dll_name is None: #this is what happens when you hit cancel
             return
-        #Close things down
-        try:
-            self.close_clients()
-        except AttributeError:
-            pass
-        try:
-            for thread in self.read_message_threads:
-                thread.runSignal = False
-        except AttributeError:
-            pass
         
         # Once an RP1210 DLL is selected, we can connect to it using the RP1210 helper file.
         self.RP1210 = RP1210Class(dll_name)
@@ -407,8 +400,6 @@ class FishingGUI(QMainWindow):
         
         # We want to connect to multiple clients with different protocols.
         self.client_id = self.RP1210.get_client_id("CAN", deviceID, "{}".format(speed))
-        self.rx_queue = queue.Queue(1000)
-        self.extra_queue = queue.Queue(1000)
         if self.client_id is None:
             print("RP1210 is not available.")
             return
@@ -428,74 +419,25 @@ class FishingGUI(QMainWindow):
         return_value = self.RP1210.SendCommand(c_short(RP1210_Echo_Transmitted_Messages), 
                                                c_short(self.client_id), 
                                                byref(fpchClientCommand), 1)
-        logger.debug('RP1210_Echo_Transmitted_Messages returns {:d}: {}'.format(return_value,self.RP1210.get_error_code(return_value)))
+        print('RP1210_Echo_Transmitted_Messages returns {:d}: {}'.format(return_value,self.RP1210.get_error_code(return_value)))
         
-         #Set all filters to pass
+        #Set all filters to pass
         return_value = self.RP1210.SendCommand(c_short(RP1210_Set_All_Filters_States_to_Pass), 
                                                c_short(self.client_id),
                                                None, 0)
         if return_value == 0:
-            logger.debug("RP1210_Set_All_Filters_States_to_Pass for {} is successful.".format(self.protocol))
+            print("RP1210_Set_All_Filters_States_to_Pass for {} is successful.".format(self.protocol))
             #setup a Receive queue. This keeps the GUI responsive and enables messages to be received.
-            self.read_message_thread = RP1210ReadMessageThread(self, 
-                                                               self.rx_queue,
-                                                               self.extra_queue,
-                                                               self.RP1210.ReadMessage, 
-                                                               self.client_id,
-                                                               self.protocol, 
-                                                               self.title)
-            self.read_message_thread.setDaemon(True) #needed to close the thread when the application closes.
-            self.read_message_thread.start()
-            logger.debug("Started RP1210ReadMessage Thread.")
-
             self.statusBar().showMessage("{} connected using {}".format(self.protocol,dll_name))
         else :
-            logger.debug('RP1210_Set_All_Filters_States_to_Pass returns {:d}: {}'.format(return_value,self.RP1210.get_error_code(return_value)))
-
-    def check_connections(self):
-        '''
-        This function checks the VDA hardware status function to see if it has seen network traffic in the last second.
-        
-        '''    
-        network_connection = {}
-
-        for key in ["CAN"]:
-            network_connection[key]=False            
-            try:
-                current_count = self.read_message_thread.message_count
-                duration = time.time() - self.read_message_thread.start_time
-                self.message_duration_label[key].setText("<html><img src='icons/icons8_Connected_48px.png'><br>Client Connected<br>{:0.0f} sec.</html>".format(duration))
-                network_connection[key] = True
-            except (KeyError, AttributeError) as e:
-                current_count = 0
-                duration = 0
-                self.message_duration_label[key].setText("<html><img src='icons/icons8_Disconnected_48px.png'><br>Client Disconnected<br>{:0.0f} sec.</html>".format(duration))
-                
-            count_change = current_count - self.previous_count[key]
-            self.previous_count[key] = current_count
-            # See if messages come in. Change the 
-            if count_change > 0 and not self.network_connected[key]: 
-                self.status_icon_CAN.setText("<html><img src='icons/icons8_Ok_48px.png'><br>Network<br>Online</html>")
-                self.network_connected[key] = True
-            elif count_change == 0 and self.network_connected[key]:             
-                self.status_icon_CAN.setText("<html><img src='icons/icons8_Unavailable_48px.png'><br>Network<br>Unavailable</html>")
-                self.network_connected[key] = False
-
-            self.message_count_label[key].setText("Message Count:\n{}".format(humanize.intcomma(current_count)))
-            self.message_rate_label[key].setText("Message Rate:\n{} msg/sec".format(count_change))
-        
-        #return True if any connection is present.
-        for key, val in network_connection.items():
-            if val: 
-                return True
-        return False
+            print('RP1210_Set_All_Filters_States_to_Pass returns {:d}: {}'.format(return_value,self.RP1210.get_error_code(return_value)))
 
     def get_hardware_status_ex(self):
         """
         Show a dialog box for valid connections for the extended get hardware status command implemented in the 
         vendor's RP1210 DLL.
         """
-        logger.debug("get_hardware_status_ex")
+        print("get_hardware_status_ex")
         if self.client_id is not None:
             self.RP1210.get_hardware_status_ex(self.client_id)
             return
@@ -510,7 +452,7 @@ class FishingGUI(QMainWindow):
         Show a dialog box for valid connections for the regular get hardware status command implemented in the 
         vendor's RP1210 DLL.
         """
-        logger.debug("get_hardware_status")
+        print("get_hardware_status")
         if self.client_id is not None:
             self.RP1210.get_hardware_status(self.client_id)
             return
@@ -525,7 +467,7 @@ class FishingGUI(QMainWindow):
         Show a dialog box for valid connections for the detailed version command implemented in the 
         vendor's RP1210 DLL.
         """
-        logger.debug("display_detailed_version")
+        print("display_detailed_version")
         if self.client_id is not None:
             self.RP1210.display_detailed_version(self.client_id)
             return
@@ -541,14 +483,14 @@ class FishingGUI(QMainWindow):
         Show a dialog box for valid connections for the extended get hardware status command implemented in the 
         vendor's RP1210 DLL. This does not require connection to a device, just a valid RP1210 DLL.
         """
-        logger.debug("display_version")
+        print("display_version")
         self.RP1210.display_version()
 
     def disconnectRP1210(self):
         """
         Close all the RP1210 read message threads and disconnect the client.
         """
-        logger.debug("disconnectRP1210")
+        print("disconnectRP1210")
         del self.read_message_thread
         self.client_id = None
         for n in range(128):
@@ -556,15 +498,15 @@ class FishingGUI(QMainWindow):
                 self.RP1210.ClientDisconnect(n)
             except:
                 pass
-        logger.debug("RP1210.ClientDisconnect() Finished.")
+        print("RP1210.ClientDisconnect() Finished.")
 
             
     def close_clients(self):
-        logger.debug("close_clients Request")
-        logger.debug("Closing {}".format(self.protocol))
+        print("close_clients Request")
+        print("Closing {}".format(self.protocol))
         self.RP1210.disconnectRP1210(self.client_id)
         self.read_message_thread.runSignal = False
-        logger.debug("Exiting.")
+        print("Exiting.")
     
     def show_graphs(self):
         self.voltage_graph.show()        
@@ -575,18 +517,27 @@ class FishingGUI(QMainWindow):
             pass
 
     def read_rp1210(self):
-        start_time = time.time()
-        #for i in range(self.rx_queue.qsize()):
-        #for i in range(100):
-        while self.rx_queue.qsize():
-            print(self.rx_queue.qsize())
-            QCoreApplication.processEvents()
-            if (time.time() - start_time + .8*self.update_rate) > self.update_rate: #give some time to process events
-                print("Can't keep up with messages.")
-                return
-
-            (current_time, vda_timestamp, can_id, dlc, can_data) = self.rx_queue.get()
-            #print("0x{:03X}".format(can_id))
+        try: 
+            return_value = self.RP1210.ReadMessage(c_short(self.client_id),
+                                                   byref(ucTxRxBuffer),
+                                                   c_short(2000),
+                                                   c_short(BLOCKING_IO))
+        except AttributeError:
+            print(traceback.format_exc())
+            return
+        if return_value > 0:
+            current_time = time.time() - self.startTime                           
+            vda_timestamp = struct.unpack(">L",ucTxRxBuffer[0:4])[0]
+            extended = ucTxRxBuffer[5]
+            if extended == 1:
+                can_id = struct.unpack(">L",ucTxRxBuffer[6:10])[0] #Swap endianness
+                can_data = ucTxRxBuffer[10:return_value]
+                dlc = int(return_value - 10)
+            
+            else:
+                can_id = struct.unpack(">H",ucTxRxBuffer[6:8])[0] #Swap endianness
+                can_data = ucTxRxBuffer[8:return_value]
+                dlc = int(return_value - 8)
             if can_id == 0x211:
                 #print(can_data)
                 self.top_line_text = can_data.decode() + self.top_line_text[8:]
@@ -609,16 +560,18 @@ class FishingGUI(QMainWindow):
                 rightMotor = can_data[7]
 
                 self.goalAngleData.append((current_time, goalAngle))
-                self.heading_graph.add_data(self.goalAngleData, 
-                        marker = '-', 
+                if len(self.goalAngleData) > 100:
+                    self.goalAngleData.pop(0)
+                self.heading_graph.add_data(list(self.goalAngleData), 
+                        marker = '-',
                         label = "Goal Angle")
                 self.ekfYawData.append((current_time, ekfYawAngle))
-                self.heading_graph.add_data(self.ekfYawData, 
+                self.heading_graph.add_data(list(self.ekfYawData), 
                         marker = 'o', 
                         label = "Yaw Angle")
                 
-                self.motorData.append((current_time, goalAngle))
-                self.heading_graph.add_data(self.goalAngleData, 
+                self.leftMotorData.append((current_time, leftMotor))
+                self.speed_graph.add_data(list(self.leftMotorData), 
                         marker = 'o-', 
                         label = "Goal Angle")
                 self.heading_graph.plot()
@@ -650,8 +603,8 @@ class FishingGUI(QMainWindow):
             elif can_id == 0x441:
                   headerValue = rxmsg.buf[0] * 256 + rxmsg.buf[1];
                   dist = rxmsg.buf[2] * 256 + rxmsg.buf[3];
-                
-        self.heading_graph.plot()
+    
+    
 
 if __name__ == '__main__':
     app = QCoreApplication.instance()
