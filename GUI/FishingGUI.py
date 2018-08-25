@@ -69,6 +69,7 @@ class FishingGUI(QMainWindow):
         self.setWindowTitle(self.title)
         self.top_line_text = "0123456789ABCDEF"
         self.bot_line_text = "0123456789ABCDEF"
+        self.dataPointsToShow = 1000
         self.goalAngleData = []
         self.ekfYawData = []
         self.leftMotorData = []
@@ -522,8 +523,8 @@ class FishingGUI(QMainWindow):
                                                    byref(ucTxRxBuffer),
                                                    c_short(2000),
                                                    c_short(BLOCKING_IO))
-        except AttributeError:
-            print(traceback.format_exc())
+        except (AttributeError, TypeError):
+            #print(traceback.format_exc())
             return
         if return_value > 0:
             current_time = time.time() - self.startTime                           
@@ -560,21 +561,31 @@ class FishingGUI(QMainWindow):
                 rightMotor = can_data[7]
 
                 self.goalAngleData.append((current_time, goalAngle))
-                if len(self.goalAngleData) > 100:
+                if len(self.goalAngleData) > self.dataPointsToShow:
                     self.goalAngleData.pop(0)
                 self.heading_graph.add_data(list(self.goalAngleData), 
                         marker = '-',
                         label = "Goal Angle")
                 self.ekfYawData.append((current_time, ekfYawAngle))
-                self.heading_graph.add_data(list(self.ekfYawData), 
+                if len(self.goalAngleData) > self.dataPointsToShow:
+                    self.goalAngleData.pop(0)
+                self.heading_graph.add_data(self.ekfYawData, 
                         marker = 'o', 
                         label = "Yaw Angle")
                 
                 self.leftMotorData.append((current_time, leftMotor))
-                self.speed_graph.add_data(list(self.leftMotorData), 
-                        marker = 'o-', 
-                        label = "Goal Angle")
-                self.heading_graph.plot()
+                if len(self.leftMotorData) > self.dataPointsToShow:
+                    self.leftMotorData.pop(0)
+                self.speed_graph.add_data(self.leftMotorData, 
+                        marker = '.', 
+                        label = "Left Motor")
+                self.rightMotorData.append((current_time, rightMotor))
+                if len(self.rightMotorData) > self.dataPointsToShow:
+                    self.rightMotorData.pop(0)
+                self.speed_graph.add_data(list(self.rightMotorData), 
+                        marker = 'x', 
+                        label = "Right Motor")
+                
             elif can_id == 0x209:
                 compassHeading = (struct.unpack(">H",can_data[0:2])[0] - 3600)/10 
                 CANcompassHeading = (struct.unpack(">H",can_data[2:4])[0] - 3600)/10
