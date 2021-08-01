@@ -14,20 +14,20 @@
 #include <Servo.h> // Used to send pulses to the motor controller
 #include <EEPROM.h> //used to store compass declination angles and calibration results
 
-float turnRate = 0.85; //degrees per second
+float turnRate = 0.5; //degrees per second
 int turnTime = 100;
 int changeLimit = 2;
 
 #define compassOffsetAddress 0
 #define CANcompassOffsetAddress 8
-double compassOffset = -10.8;// True - measured, so measured + offset = true
+double compassOffset;// True - measured, so measured + offset = true
 
 //PID Gain Constants. Tune these for best results.
 //Field Test result worked with angleK = 4, angleI = .3, angleD = 25. Determined on 20 July 2016 on Skiatook Lake
 //Field Test result worked with angleK = 8, angleI = .3, angleD = 30. Determined on 25 July 2018 on Jackson Lake
 double angleK = 8;
 double angleI = .3;
-double angleD = 30;
+double angleD = 32;
 
 //These still need tuned, but they seem to work.
 double speedK = .1;
@@ -116,13 +116,16 @@ char topLine[17];
 char botLine[17];
 
 double gyroScaleFactor = 0.003814697265625; //Set to 125deg/s / 2^15
-double gyroOffset = -0.122513335; //Used to zero out the rate gyro when it is still. Uses a longterm average.
+//double gyroOffset = -0.122513335; //Used to zero out the rate gyro when it is still. Uses a longterm average.
+double gyroOffset = -0.099003911;//Used to zero out the rate gyro when it is still. Uses a longterm average.
 
 double biasSetting = 1.00; // adjust this value to make the boat go straight in full mode. This the compensation coefficent for the right motor
 
 uint8_t headingCount = 0;
 double headingSum = 0;
 double CANheadingSum = 0;
+
+#include "BNO055.h"
 
 
 const int memorySize = 2400;
@@ -132,7 +135,7 @@ int32_t differenceSpeedList[2400];
 double accelX = 0;
 
 const uint32_t deltaTms = 50; //milliseconds for calculations and output
-const uint32_t modeDisplayPeriod = 100;
+const uint32_t modeDisplayPeriod = 147;
 
 double yawOffset = 0;
 double CANcompassOffset = 0;
@@ -163,10 +166,11 @@ const int stopMotorValue = 92;
 const int maxRevMotorValue = 8;
 const int maxFwdMotorValue = 208;
 
-elapsedMillis upperLeftTimer = 0;
-elapsedMillis upperRightTimer = 50;
-elapsedMillis lowerLeftTimer = 100;
-elapsedMillis lowerRightTimer = 150;
+#define DISPLAY_PERIOD 197
+elapsedMillis upperLeftTimer;
+elapsedMillis upperRightTimer;
+elapsedMillis lowerLeftTimer;
+elapsedMillis lowerRightTimer;
 
 elapsedMillis calculateMotorOutputTimer; // this is interrupt based
 elapsedMillis broadcastCANtimer; //set up intervals
@@ -264,13 +268,13 @@ uint32_t CANRXcount = 0;
 uint32_t ID = 0;
 char message[17] = "                "; //initialize with spaces
 
-#include "BNO055.h"
+
 
 
 /*****************************************************************************************/
 /* DISPLAY HELPER FUNCTIONS */
 void displayUpperLeft8(char message[9]) {
-  if (upperLeftTimer > 200){
+  if (upperLeftTimer > DISPLAY_PERIOD){
     upperLeftTimer = 0;
     txmsg.id = 0x211; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
@@ -279,7 +283,7 @@ void displayUpperLeft8(char message[9]) {
 }
 
 void displayUpperRight8(char message[9]) {
-  if (upperRightTimer > 200){
+  if (upperRightTimer > DISPLAY_PERIOD){
     upperRightTimer = 0;
     txmsg.id = 0x212; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
@@ -288,7 +292,7 @@ void displayUpperRight8(char message[9]) {
 }
 
 void displayLowerLeft8(char message[9]) {
-  if (lowerLeftTimer > 200){
+  if (lowerLeftTimer > DISPLAY_PERIOD){
     lowerLeftTimer = 0;
     txmsg.id = 0x221; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
@@ -297,7 +301,7 @@ void displayLowerLeft8(char message[9]) {
 }
 
 void displayLowerRight8(char message[9]) {
-  if (lowerRightTimer > 200){
+  if (lowerRightTimer > DISPLAY_PERIOD){
     lowerRightTimer = 0;
     txmsg.id = 0x222; //sent to the lower right
     for (int j = 0; j < txmsg.len; j++) txmsg.buf[j] = message[j];
@@ -311,6 +315,7 @@ void displayTopLine(char _topLine[17]) {
   displayUpperLeft8(message);
   for (int j = 8; j < 16; j++) message[j - 8] = _topLine[j];
   displayUpperRight8(message);
+  delay(1);
 }
 
 void displayBottomLine(char _botLine[17]) {
@@ -325,6 +330,9 @@ void displayBottomLine(char _botLine[17]) {
 
 
 void setup() {
+  compassOffset = -23.15299213;
+  CANcompassOffset = 0;
+    
   Wire.begin();
   Serial.println("Welcome to the Teensy Troller. We will get setup first.");
 
@@ -444,16 +452,15 @@ void setup() {
   Serial.println("Done.");
 
   Serial.println("Sending CAN messages... ");
-  sprintf(topLine, "Fishing is great", compassOffset, int(gps.satellites.value()));
+  sprintf(topLine, "Fishing is great");
   displayTopLine(topLine);
-  delay(20);
   sprintf(botLine, "today. Have fun!", int(ekfYawAngle), int(gps.course.deg()), ekfSpeed);
   displayBottomLine(botLine);
   Serial.println("Done.");
-  Serial.println("Loading Compass Offsets from EEPROM... ");
-  EEPROM.get(compassOffsetAddress, compassOffset);
-  EEPROM.get(CANcompassOffsetAddress, CANcompassOffset);
-  Serial.println("Done.");
+  //Serial.println("Loading Compass Offsets from EEPROM... ");
+  //EEPROM.get(compassOffsetAddress, compassOffset);
+  //EEPROM.get(CANcompassOffsetAddress, CANcompassOffset);
+  //Serial.println("Done.");
 
   //Initialize the Kalman Filter
   compassHeading = getCompassHeading();
@@ -461,9 +468,9 @@ void setup() {
   deltaT = double(deltaTms) / 1000.0;
  
   upperLeftTimer = 0;
-  upperRightTimer = 50;
-  lowerLeftTimer = 100;
-  lowerRightTimer = 150;
+  upperRightTimer = 47;
+  lowerLeftTimer = 91;
+  lowerRightTimer = 143;
 }
 
 
@@ -649,7 +656,7 @@ void debugData() {
     Serial.print("\t");
     Serial.print(goalAngle);
     Serial.print("\t");
-    Serial.print(compassHeading);
+    Serial.print(compass.heading);
     Serial.print("\t");
     Serial.print(gps.course.deg());
     Serial.print("\t");
@@ -718,21 +725,21 @@ void resetCompassOffset() {
 
       if (headingCount >= 20) {
         needsRealigned = false;
-        compassOffset =   gps.course.deg() - headingSum / headingCount;
-        CANcompassOffset =  gps.course.deg() - CANheadingSum / headingCount;
+        //compassOffset =   gps.course.deg() - headingSum / headingCount;
+        //CANcompassOffset =  gps.course.deg() - CANheadingSum / headingCount;
 
-        if (CANcompassOffset < -180) CANcompassOffset += 360;
-        if (CANcompassOffset > 180) CANcompassOffset -= 360;
-        if (compassOffset < -180) compassOffset += 360;
-        if (compassOffset > 180) compassOffset -= 360;
+//        if (CANcompassOffset < -180) CANcompassOffset += 360;
+//        if (CANcompassOffset > 180) CANcompassOffset -= 360;
+//        if (compassOffset < -180) compassOffset += 360;
+//        if (compassOffset > 180) compassOffset -= 360;
+//
+//        Serial.print("Setting Compass Offsets Based on GPS heading: compassOffset = ");
+//        Serial.print(compassOffset);
+//        Serial.print(", CANcompassOffset = ");
+//        Serial.println(CANcompassOffset);
 
-        Serial.print("Setting Compass Offsets Based on GPS heading: compassOffset = ");
-        Serial.print(compassOffset);
-        Serial.print(", CANcompassOffset = ");
-        Serial.println(CANcompassOffset);
-
-        EEPROM.put(compassOffsetAddress, compassOffset);
-        EEPROM.put(CANcompassOffsetAddress, CANcompassOffset);
+//        EEPROM.put(compassOffsetAddress, compassOffset);
+//        EEPROM.put(CANcompassOffsetAddress, CANcompassOffset);
         compassHeading = getCompassHeading();
         ekf.setX(0, compassHeading);
 
@@ -743,11 +750,28 @@ void resetCompassOffset() {
 
 double getCompassHeading() {
   compass.readHeading();
-  tempHeading = compass.heading / 10.0 + compassOffset; //local compass
-  CANcompassHeading = CANheading + CANcompassOffset;
-
+  if ((int(gps.satellites.value()) > 8) && (gps.speed.mph() > 1.0) ){
+    tempHeading = gps.course.deg();
+  }
+  else {
+    tempHeading = compass.heading / 10.0 + compassOffset; //local compass
+  }
+  //Try this instead
+  //Serial.println (tempHeading);
+  
+//  CANcompassHeading = CANheading + CANcompassOffset;
+//  Serial.println(CANcompassHeading);
+//  Serial.println();
+  
+  
   if (ekfYawAngle > 270 && tempHeading < 90) tempHeading += 360;
   if (ekfYawAngle < 90 && tempHeading > 270) tempHeading -= 360;
+  
+//  if (ekfYawAngle > 270 && CANcompassHeading < 90) CANcompassHeading += 360;
+//  if (ekfYawAngle < 90 && CANcompassHeading > 270) CANcompassHeading -= 360;
+
+  //Average the 2 together
+  //tempHeading = (tempHeading + CANcompassHeading) / 2;
   
   return tempHeading;
 }
@@ -768,7 +792,9 @@ void getMeasurements() {
     if (mode != 6) ekf.step(z);
 
     // Report measured and predicted/fused values
+    // This was failing when the BNO 055 wasn't giving good gyro data.
     ekfYawAngle = ekf.getX(0);
+    //ekfYawAngle = compassHeading;
     ekfYawRate = ekf.getX(1);
     ekfSpeed = ekf.getX(2);
 
@@ -777,7 +803,7 @@ void getMeasurements() {
     ekf.setX(0, ekfYawAngle);
   }
   
-  while (Serial1.available()) gps.encode(Serial1.read());
+  if (Serial1.available()) gps.encode(Serial1.read());
 }
 
 void loop() {
@@ -1083,7 +1109,7 @@ void loop() {
       needsRealigned = true;
       resetCompassTimer = 0;
       headingCount = 0;
-      compassOffset = 0;
+      //compassOffset = 0;
       CANcompassOffset = 0;
       headingSum = 0;
       CANheadingSum = 0;
@@ -1095,8 +1121,8 @@ void loop() {
       ekf.setX(0, compassHeading);
     }
     else if (downButtonState && !pushButtonState) { //Reset the compass offset
-      compassOffset = 0;
-      CANcompassOffset = 0;
+//      compassOffset = 0;
+//      CANcompassOffset = 0;
     }
     if (courseSettingTimer > courseSetTime) {
       courseSettingTimer = 0;
@@ -1370,4 +1396,3 @@ void  calculateMotorOutput() {
   }
 
 }
-
