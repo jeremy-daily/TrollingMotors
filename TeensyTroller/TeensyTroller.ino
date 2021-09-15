@@ -656,7 +656,7 @@ void debugData() {
     Serial.print("\t");
     Serial.print(goalAngle);
     Serial.print("\t");
-    Serial.print(compass.heading);
+    Serial.print(compass.heading/10.0);
     Serial.print("\t");
     Serial.print(gps.course.deg());
     Serial.print("\t");
@@ -708,8 +708,8 @@ void debugData() {
 
 
 void resetCompassOffset() {
-  if (needsRealigned) {
-    if (ekfSpeed > 15.0 && abs(yawRate) < 1.0) //compass heading can be realigned to velocity vector
+  //if (needsRealigned) {
+    if (ekfSpeed > 30.0 && abs(yawRate) < 1.0) //compass heading can be realigned to velocity vector
     {
 
       if (resetCompassTimer >= 200)
@@ -725,53 +725,40 @@ void resetCompassOffset() {
 
       if (headingCount >= 20) {
         needsRealigned = false;
-        //compassOffset =   gps.course.deg() - headingSum / headingCount;
-        //CANcompassOffset =  gps.course.deg() - CANheadingSum / headingCount;
+        compassOffset =   gps.course.deg() - headingSum / headingCount;
+        CANcompassOffset =  gps.course.deg() - CANheadingSum / headingCount;
 
-//        if (CANcompassOffset < -180) CANcompassOffset += 360;
-//        if (CANcompassOffset > 180) CANcompassOffset -= 360;
-//        if (compassOffset < -180) compassOffset += 360;
-//        if (compassOffset > 180) compassOffset -= 360;
-//
-//        Serial.print("Setting Compass Offsets Based on GPS heading: compassOffset = ");
-//        Serial.print(compassOffset);
-//        Serial.print(", CANcompassOffset = ");
-//        Serial.println(CANcompassOffset);
+        if (CANcompassOffset < -180) CANcompassOffset += 360;
+        if (CANcompassOffset > 180) CANcompassOffset -= 360;
+        if (compassOffset < -180) compassOffset += 360;
+        if (compassOffset > 180) compassOffset -= 360;
 
-//        EEPROM.put(compassOffsetAddress, compassOffset);
-//        EEPROM.put(CANcompassOffsetAddress, CANcompassOffset);
+        Serial.print("Setting Compass Offsets Based on GPS heading: compassOffset = ");
+        Serial.print(compassOffset);
+        Serial.print(", CANcompassOffset = ");
+        Serial.println(CANcompassOffset);
+
+        EEPROM.put(compassOffsetAddress, compassOffset);
+        EEPROM.put(CANcompassOffsetAddress, CANcompassOffset);
         compassHeading = getCompassHeading();
         ekf.setX(0, compassHeading);
 
       }
     }
-  }
+  //}
 }
 
 double getCompassHeading() {
   compass.readHeading();
-  if ((int(gps.satellites.value()) > 8) && (gps.speed.mph() > 1.0) ){
+  if ((int(gps.satellites.value()) > 7) && (gps.speed.mph() > 1.0) ){
     tempHeading = gps.course.deg();
   }
   else {
     tempHeading = compass.heading / 10.0 + compassOffset; //local compass
   }
-  //Try this instead
-  //Serial.println (tempHeading);
-  
-//  CANcompassHeading = CANheading + CANcompassOffset;
-//  Serial.println(CANcompassHeading);
-//  Serial.println();
-  
   
   if (ekfYawAngle > 270 && tempHeading < 90) tempHeading += 360;
   if (ekfYawAngle < 90 && tempHeading > 270) tempHeading -= 360;
-  
-//  if (ekfYawAngle > 270 && CANcompassHeading < 90) CANcompassHeading += 360;
-//  if (ekfYawAngle < 90 && CANcompassHeading > 270) CANcompassHeading -= 360;
-
-  //Average the 2 together
-  //tempHeading = (tempHeading + CANcompassHeading) / 2;
   
   return tempHeading;
 }
@@ -788,22 +775,22 @@ void getMeasurements() {
     // accelX = BNOgetAccelX();
 
     // Send these measurements to the EKF
-    double z[M] = {compassHeading, yawRate, gps.speed.mph(), gpsSpeed};
+    //
+    double z[M] = {compassHeading, gps.course.deg(), yawRate};
     if (mode != 6) ekf.step(z);
 
     // Report measured and predicted/fused values
     // This was failing when the BNO 055 wasn't giving good gyro data.
     ekfYawAngle = ekf.getX(0);
-    //ekfYawAngle = compassHeading;
     ekfYawRate = ekf.getX(1);
-    ekfSpeed = ekf.getX(2);
+    //ekfSpeed = ekf.getX(2);
 
     if (ekfYawAngle >= 360) ekfYawAngle -= 360;
     if (ekfYawAngle < 0)    ekfYawAngle += 360;
     ekf.setX(0, ekfYawAngle);
   }
   
-  if (Serial1.available()) gps.encode(Serial1.read());
+  while (Serial1.available()) gps.encode(Serial1.read());
 }
 
 void loop() {
