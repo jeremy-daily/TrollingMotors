@@ -24,8 +24,8 @@ boolean LEDstate;
 void setup() {
   pinMode(LED_BUILTIN,OUTPUT);
   delay(10);
-  Serial.println("Starting CAN at 500k... ");
-  Can0.begin(500000);
+  Serial.println("Starting CAN at 250k... ");
+  Can0.begin(250000);
   Serial.println("Done.");
   
   Serial.print("Starting GPS... ");
